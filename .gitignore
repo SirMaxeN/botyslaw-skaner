@@ -1,0 +1,46 @@
+# Local credentials and device state
+.signing/
+.local/
+.env
+.env.*
+!.env.example
+local.properties
+*.jks
+*.keystore
+*.pem
+*.key
+*.p12
+*.pfx
+release.properties
+
+# Generated Android/IDE output
+.gradle/
+.kotlin/
+**/build/
+.idea/
+.vscode/
+*.iml
+captures/
+releases/
+*.apk
+*.aab
+*.apks
+*.log
+*.tmp
+*.bak
+__pycache__/
+*.py[cod]
+
+# Private screen recordings and replay fixtures
+test-device/
+test-avd*/
+verification/
+*.gray
+*.mp4
+*.wav
+*.mp3
+*.zip
+
+# OS metadata
+.DS_Store
+Thumbs.db
