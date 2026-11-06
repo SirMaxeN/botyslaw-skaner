@@ -18,7 +18,7 @@ object ScannerIconBar {
  fun create(context:Context,actions:List<Triple<String,String,()->Unit>>)=LinearLayout(context).apply {
   orientation=LinearLayout.HORIZONTAL;isBaselineAligned=false;gravity=Gravity.CENTER
   setPadding(ScannerAppearance.dp(context,12),ScannerAppearance.dp(context,8),ScannerAppearance.dp(context,12),ScannerAppearance.dp(context,8))
-  background=ScannerAppearance.rounded(context,0xFF10212B.toInt(),16,ScannerAppearance.ACCENT).apply {setStroke(ScannerAppearance.dp(context,2),ScannerAppearance.ACCENT)}
+  background=ScannerAppearance.overlayPanel(context)
   actions.forEach {(label,symbol,action)->addView(button(context,symbol,label,action),LinearLayout.LayoutParams(cell(context,actions.size),cell(context,actions.size)))}
  }
 }

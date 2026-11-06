@@ -15,10 +15,7 @@ internal class FullWarComputation(private val store:FullWarStore) {
    val out=JSONObject().put("savedAt",System.currentTimeMillis())
    if(a[i]==null||b[j]==null)return out.put("error","Niekompletny profil gracza.")
    try {
-    for(profile in listOf(a[i]!!,b[j]!!)) {
-     val fairy=profile.optJSONObject("fairy")
-     require(fairy?.optString("type")!="TIRA"||(fairy.has("present")&&!fairy.optBoolean("present"))) {"Wróżka Tira: zasady odbicia niepotwierdzone. Brak wiarygodnej oceny."}
-    }
+    // Season 2026-11 Tira converts health into the Damage multiplier, already in the displayed damage.
     val result=PvpBattleEngine.simulate(FullProfileCodec.profile(a[i]!!),FullProfileCodec.profile(b[j]!!),own,rival,n,Random(key.hashCode()),shouldStop=cancelled)
     out.put("wins",result.wins).put("losses",result.losses).put("draws",result.draws).put("trials",result.count)
    }catch(e:CancellationException){throw e}catch(e:IllegalArgumentException){out.put("error",e.message?:"Nieobsługiwany efekt.")}
@@ -34,4 +31,25 @@ internal class FullWarComputation(private val store:FullWarStore) {
   val matrix=JSONArray();for(i in a.indices)for(j in b.indices)matrix.put(JSONObject(results[i][j]!!.toString()).put("ally",i).put("enemy",j))
   return JSONObject().put("model",FullWarStore.MODEL).put("matrix",matrix).put("complete_ours",a.count {it!=null}).put("complete_enemies",b.count {it!=null}).put("experimental",true)
  }
+ /** Round-robin inside one clan without war bonuses; each unordered pair once (ally < enemy). */
+ fun ranking(members:List<WarMember>,profiles:(WarMember)->JSONObject?,cancelled:()->Boolean,trials:Int=RANKING_TRIALS,progress:(Int,Int)->Unit):JSONObject {
+  val p=members.map(profiles);val digest=p.map {it?.let {FullWarStore.hash(it.toString())}}
+  val none=WarBonus(0.0,0.0);val matrix=JSONArray();val total=members.size*(members.size-1)/2;var done=0
+  for(i in members.indices)for(j in i+1 until members.size) {
+   if(cancelled())throw CancellationException()
+   val key=FullWarStore.hash("ranking|${FullWarStore.MODEL}|${digest[i]}|${digest[j]}|$trials")
+   val cached=if(digest[i]!=null&&digest[j]!=null)store.pair(key)else null
+   val out=cached?:JSONObject().put("savedAt",System.currentTimeMillis()).also {out->
+    if(p[i]==null||p[j]==null)out.put("error","Niekompletny profil gracza.")
+    else try {
+     val result=PvpBattleEngine.simulate(FullProfileCodec.profile(p[i]!!),FullProfileCodec.profile(p[j]!!),none,none,trials,Random(key.hashCode()),shouldStop=cancelled)
+     out.put("wins",result.wins).put("losses",result.losses).put("draws",result.draws).put("trials",result.count)
+    }catch(e:CancellationException){throw e}catch(e:IllegalArgumentException){out.put("error",e.message?:"Nieobsługiwany efekt.")}
+    if(p[i]!=null&&p[j]!=null)store.pair(key,out)
+   }
+   matrix.put(JSONObject(out.toString()).apply {remove("savedAt")}.put("ally",i).put("enemy",j));progress(++done,total)
+  }
+  return JSONObject().put("model",FullWarStore.MODEL).put("experimental",true).put("matrix",matrix).put("complete",p.count {it!=null})
+ }
+ companion object {const val RANKING_TRIALS=512}
 }

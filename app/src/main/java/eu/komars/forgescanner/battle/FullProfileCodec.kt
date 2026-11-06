@@ -18,9 +18,20 @@ internal object FullProfileCodec {
   val fairy=draft.optJSONObject("fairy")?:error("Brak odczytu wróżki.")
   val absent=fairy.has("present")&&!fairy.optBoolean("present")
   require(absent||(fairy.optString("type") in listOf("LORA","MIRA","TIRA")&&fairy.optInt("level") in 1..20)) {"Niepewna wróżka lub jej poziom."}
-  if(!absent&&fairy.optString("type")=="MIRA")require(fairy.optDouble("criticalReduction",0.0)>0||(draft.optJSONObject("bonuses")?.optDouble(Bonus.CRIT_REDUCTION.name,0.0)?:0.0)>0) {"Nie odczytano redukcji krytycznej wróżki Mira."}
+  val bonuses=draft.optJSONObject("bonuses")?.let {JSONObject(it.toString())}?:JSONObject()
+  if(!absent&&fairy.optString("type")=="MIRA") {
+   val listed=bonuses.optDouble(Bonus.CRIT_REDUCTION.name,0.0)
+   if(fairy.optDouble("criticalReduction",0.0)<=0&&listed<=0) {
+    val coefficient=FairyEffects.miraCoefficient(fairy.optString("detailRaw"))
+    require(coefficient!=null&&draft.has("raw")) {"Nie odczytano współczynnika wróżki Mira."}
+    // A missing cooldown line is a confirmed zero only after the whole bonus list was read.
+    val cooldown=bonuses.optDouble(Bonus.SKILL_COOLDOWN.name,0.0)
+    bonuses.put(Bonus.CRIT_REDUCTION.name,FairyEffects.miraReduction(coefficient,cooldown))
+    fairy.put("criticalReductionSource","calculated").put("criticalReductionCoefficient",coefficient)
+   }
+  }
   require(draft.has("pets")&&draft.optInt("pets",-1) in 0..3&&draft.has("mounted")) {"Nie potwierdzono zwierzaków lub wierzchowca."}
-  return JSONObject(draft.toString()).put("name",expected).put("damage",damage).put("health",health).put("ranged",ranged).put("skills",skills).put("skillsReviewed",true).put("pets",draft.getInt("pets")).put("mounted",draft.getBoolean("mounted")).put("skillMastery",0.0)
+  return JSONObject(draft.toString()).put("name",expected).put("damage",damage).put("health",health).put("ranged",ranged).put("skills",skills).put("skillsReviewed",true).put("pets",draft.getInt("pets")).put("mounted",draft.getBoolean("mounted")).put("skillMastery",0.0).put("bonuses",bonuses).put("fairy",fairy)
  }
  fun profile(o:JSONObject):BattleProfile {
   val values=o.optJSONObject("bonuses");val raw=o.optString("raw")

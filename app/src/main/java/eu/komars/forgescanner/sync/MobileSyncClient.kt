@@ -73,6 +73,10 @@ class MobileSyncClient(context: Context, private val demoMode: () -> Boolean = {
         val credential=settings.getString("credential",null)
         execute(callback) { post(if(payload.optBoolean("test_mode"))"war-test" else "war-list",payload,token(credential)).toString() }
     }
+    fun sendClanRanking(payload:JSONObject,callback:(Result<String>)->Unit) {
+        val credential=settings.getString("credential",null)
+        execute(callback) { post("clan-ranking",payload,token(credential)).toString() }
+    }
     fun disconnect() { synchronized(settings) { pairingEpoch.incrementAndGet(); settings.edit().clear().apply() } }
 
     private fun token(credential: String?): String {
@@ -118,8 +122,8 @@ class MobileSyncClient(context: Context, private val demoMode: () -> Boolean = {
             }
             val response = runCatching { JSONObject(bytes.toString("UTF-8")) }.getOrElse { JSONObject() }
             check(status in 200..299) {
-                if(status==404 && route in listOf("war-test","war-list","war-status"))
-                    "Raport ${if(route=="war-test") "testowy " else "wojenny "}nie jest dostępny na serwerze (HTTP 404). Listy są zachowane w tej sesji. Po aktualizacji bota wybierz Kontynuuj — bez ponownego skanu."
+                if(status==404 && route in listOf("war-test","war-list","war-status","clan-ranking"))
+                    "Raport ${if(route=="war-test") "testowy " else if(route=="clan-ranking") "rankingu " else "wojenny "}nie jest dostępny na serwerze (HTTP 404). Listy są zachowane w tej sesji. Po aktualizacji bota wybierz Kontynuuj — bez ponownego skanu."
                 else response.optString("error", "Nie udało się połączyć z serwerem (HTTP $status).")
             }
             return response

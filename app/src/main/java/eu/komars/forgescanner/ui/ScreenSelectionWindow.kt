@@ -25,7 +25,7 @@ class ScreenSelectionWindow(
     private val onResult: (Rect, Int, Int) -> Unit,
     private val onCancel: () -> Unit,
     private val titleText: String? = null,
-    private val accentColor: Int = 0xFF61D6AC.toInt(),
+    private val accentColor: Int = ScannerAppearance.ACCENT,
     private val instructionText: String? = null,
     private val initialSelection: Rect? = null,
     private val minimumSelectionSize: Int = 32,
@@ -142,7 +142,7 @@ class ScreenSelectionWindow(
             super.onDraw(canvas)
         }
     }
-    private val colors = intArrayOf(0xFF61D6AC.toInt(),0xFFFFD166.toInt(),0xFF66C7FF.toInt(),0xFFEF8DDF.toInt(),0xFFFF9278.toInt(),0xFFB5A0FF.toInt(),0xFFA5E478.toInt(),0xFFFFAEC9.toInt(),0xFF65E0DF.toInt())
+    private val colors = intArrayOf(ScannerAppearance.ACCENT,0xFFFFD166.toInt(),0xFF66C7FF.toInt(),0xFFEF8DDF.toInt(),0xFFFF9278.toInt(),0xFFB5A0FF.toInt(),0xFFA5E478.toInt(),0xFFFFAEC9.toInt(),0xFF65E0DF.toInt())
     private fun dp(value: Int) = (value * context.resources.displayMetrics.density).toInt()
 
     private inner class SelectionView(context: Context, private val image: Bitmap) : View(context) {

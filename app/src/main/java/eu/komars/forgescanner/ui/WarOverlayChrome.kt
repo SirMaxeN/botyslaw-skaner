@@ -12,7 +12,7 @@ internal class WarOverlayChrome(private val context:Context,private val stop:()-
  private val wm=context.getSystemService(WindowManager::class.java)
  private fun dp(n:Int)=ScannerAppearance.dp(context,n)
  private val screen get()=if(Build.VERSION.SDK_INT>=30)wm.maximumWindowMetrics.bounds else android.graphics.Rect(0,0,context.resources.displayMetrics.widthPixels,context.resources.displayMetrics.heightPixels)
- val root=LinearLayout(context).apply {orientation=LinearLayout.VERTICAL;setPadding(dp(12),dp(8),dp(12),dp(8));background=ScannerAppearance.rounded(context,0xFF10212B.toInt(),16,ScannerAppearance.ACCENT)}
+ val root=LinearLayout(context).apply {orientation=LinearLayout.VERTICAL;setPadding(dp(12),dp(8),dp(12),dp(8));background=ScannerAppearance.overlayPanel(context)}
  val content=LinearLayout(context).apply {orientation=LinearLayout.VERTICAL}
  val recovery=LinearLayout(context).apply {orientation=LinearLayout.VERTICAL}
  private val fullHeader=LinearLayout(context).apply {gravity=Gravity.CENTER_VERTICAL}

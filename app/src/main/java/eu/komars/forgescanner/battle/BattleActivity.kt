@@ -34,7 +34,7 @@ class BattleActivity: Activity() {
         if(state==CaptureState.READY && requested) {
             requested=false
             val side=pending ?: "self"
-            if(side=="war-full-test")app.warOverlay.offer(true,test=true,full=true)else if(side=="war-test") app.warOverlay.offer(true,test=true) else if(side=="war-prep" || side=="war-list") app.warOverlay.offer(side=="war-list") else app.battleOverlay.show(side)
+            if(side=="clan-ranking")app.warOverlay.offer(false,full=true,ranking=true)else if(side=="war-full-test")app.warOverlay.offer(true,test=true,full=true)else if(side=="war-test") app.warOverlay.offer(true,test=true) else if(side=="war-prep" || side=="war-list") app.warOverlay.offer(side=="war-list") else app.battleOverlay.show(side)
             packageManager.getLaunchIntentForPackage("com.hariwn.legendofcivilizations")?.let { startActivity(it) }
                 ?: Toast.makeText(this,"Otwórz Forge Master ręcznie",Toast.LENGTH_LONG).show()
         } else if(state==CaptureState.ERROR) { requested=false; message(detail ?: "Nie udało się uruchomić odczytu") }
@@ -128,6 +128,7 @@ class BattleActivity: Activity() {
         }
         if(eu.komars.forgescanner.BuildConfig.DEBUG && packageName.endsWith(".autotest") && app.battleOverlay.isConfigured()) button("Test listy wojennej",enabled=app.mobile.paired) {prepare("war-test")}
         if(eu.komars.forgescanner.BuildConfig.DEBUG && packageName.endsWith(".autotest") && app.battleOverlay.isConfigured()) button("Pełne profile klanów + symulacje (TEST)",enabled=app.mobile.paired) {prepare("war-full-test")}
+        if(eu.komars.forgescanner.BuildConfig.DEBUG && packageName.endsWith(".autotest") && app.battleOverlay.isConfigured()) button("Ranking klanu",enabled=app.mobile.paired) {prepare("clan-ranking")}
         if(!open) label("Lista wojenna: niedziela 01:00 – poniedziałek 01:00 (czas polski).",13)
         if(!app.mobile.paired) label("Przygotowanie wojenne i lista wymagają połączenia z Discordem w menu głównym.",13)
         button("Menu główne") { app.closeScanner();startActivity(Intent(this,eu.komars.forgescanner.HomeActivity::class.java)) }

@@ -45,8 +45,18 @@ class GestureAccessService : AccessibilityService() {
         if (stale || decision == ForegroundWindowClassifier.Decision.IGNORE) return
         lastWindowEventAt = event.eventTime
         gameForeground = decision == ForegroundWindowClassifier.Decision.GAME
-        if (!gameForeground) cancelRun("Gra nie jest na pierwszym planie. Automatyczny skan zatrzymano.")
+        if (!gameForeground) { recordForegroundLoss(owner, className); cancelRun("Gra nie jest na pierwszym planie. Automatyczny skan zatrzymano.") }
         GestureConnection.publish(this, gameForeground, if (gameForeground) null else "Otwórz Forge Master, aby rozpocząć automatyczny skan.")
+    }
+
+    /** Bounded private diagnostics: which window took focus when a scan stopped (owner/class only). */
+    private fun recordForegroundLoss(owner: String?, className: String) {
+        if (!BuildConfig.DEBUG) return
+        runCatching {
+            val file = java.io.File(cacheDir, "foreground-loss.txt")
+            val lines = (if (file.exists()) file.readLines().takeLast(49) else emptyList()) + "${java.time.Instant.now()} owner=${owner?.take(120)} class=${className.take(160)}"
+            file.writeText(lines.joinToString("\n", postfix = "\n"))
+        }
     }
 
     private fun debugWindow(message: String) {

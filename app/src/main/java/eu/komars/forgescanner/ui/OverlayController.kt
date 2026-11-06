@@ -141,7 +141,7 @@ class OverlayController(
         val box = DraggableOverlayLayout(context, ::movePanel).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(14), dp(12), dp(14), dp(12))
-            background = background(0xFF101F30.toInt(), 18)
+            background = background(ScannerAppearance.PANEL, 18)
         }
         val target = flow.currentTarget
         val title = when {
@@ -360,7 +360,7 @@ class OverlayController(
     private fun recordingPanel(): View = DraggableOverlayLayout(context, ::movePanel).apply {
         orientation = LinearLayout.VERTICAL
         setPadding(dp(14), dp(12), dp(14), dp(12))
-        background = background(0xFF101F30.toInt(), 18)
+        background = background(ScannerAppearance.PANEL, 18)
         addView(header(if (analyzing) "Analiza listy" else "Skanowanie"))
         if (!compactRecording) addView(stepIndicator())
         recordingTitleView = label(recordingTarget?.title ?: "Lista", 13f, true)
@@ -587,9 +587,9 @@ class OverlayController(
         setPadding(0, dp(8), 0, dp(10))
         val active = flow.currentTarget?.position ?: if (flow.isComplete) 4 else 0
         for (step in 1..4) addView(label("$step", 10f, true,
-            if (step == active) 0xFF102030.toInt() else MUTED).apply {
+            if (step == active) ScannerAppearance.ON_ACCENT else MUTED).apply {
                 gravity = Gravity.CENTER
-                background = background(if (step == active) stepColor() else 0xFF24364B.toInt(), 5)
+                background = background(if (step == active) stepColor() else ScannerAppearance.CONTROL, 5)
             }, LinearLayout.LayoutParams(0, dp(18), 1f).apply { if (step < 4) marginEnd = dp(5) })
     }
 
@@ -598,12 +598,12 @@ class OverlayController(
         addView(label(title, 12f, true, stepColor()).apply { maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END }, LinearLayout.LayoutParams(0, -2, 1f))
         addView(Button(context).apply {
             text = "☰"; textSize = 16f; contentDescription = "Menu skanera"; setPadding(0,0,0,0)
-            background = background(0xFF24364B.toInt(), 10); setTextColor(Color.WHITE)
+            background = background(ScannerAppearance.CONTROL, 10); setTextColor(ScannerAppearance.FOREGROUND)
             setOnClickListener { showQuickMenu() }
         }, LinearLayout.LayoutParams(dp(34), dp(34)).apply { marginEnd = dp(5) })
         addView(Button(context).apply {
             text = "×"; textSize = 23f; contentDescription = "Zamknij skaner"; setPadding(0,0,0,0)
-            background = background(0xFF3E2635.toInt(), 10); setTextColor(0xFFFFA8AF.toInt())
+            background = background(ScannerAppearance.DANGER_SURFACE, 10); setTextColor(ScannerAppearance.DANGER_TEXT)
             setOnClickListener { closeScanner() }
         }, LinearLayout.LayoutParams(dp(34), dp(34)))
     }
@@ -644,8 +644,8 @@ class OverlayController(
         text = value; isAllCaps = false; textSize = 11f
         minWidth = 0; minimumWidth = 0; minHeight = 0; minimumHeight = 0
         setPadding(dp(4), 0, dp(4), 0)
-        setTextColor(if (primary) 0xFF102A26.toInt() else Color.WHITE)
-        background = background(if (primary) ACCENT else 0xFF324359.toInt(), 8)
+        setTextColor(if (primary) ScannerAppearance.ON_ACCENT else ScannerAppearance.FOREGROUND)
+        background = background(if (primary) ACCENT else ScannerAppearance.CONTROL, 10)
         contentDescription = value
         setOnClickListener { if (!busy) action() }
     }
@@ -692,7 +692,7 @@ class OverlayController(
     private fun background(color: Int, radius: Int) = GradientDrawable().apply { setColor(color); cornerRadius = dp(radius).toFloat() }
     private fun dp(value: Int) = (value * context.resources.displayMetrics.density).toInt()
     companion object {
-        private val ACCENT = 0xFF72D8B5.toInt()
-        private val MUTED = 0xFFB5C5D8.toInt()
+        private val ACCENT = ScannerAppearance.ACCENT
+        private val MUTED = ScannerAppearance.MUTED
     }
 }

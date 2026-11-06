@@ -158,11 +158,11 @@ class BattleOverlay(private val context: Context) {
         CaptureConnection.addStateListener(captureListener)
         panel=LinearLayout(context).apply {
             orientation=LinearLayout.VERTICAL; setPadding(dp(12),dp(8),dp(12),dp(8))
-            background=android.graphics.drawable.GradientDrawable().apply { setColor(0xFF10212B.toInt());setStroke(dp(2),0xFF61D6AC.toInt());cornerRadius=dp(16).toFloat() }
+            background=eu.komars.forgescanner.ui.ScannerAppearance.overlayPanel(context)
         }
         status=TextView(context).apply { setTextColor(eu.komars.forgescanner.ui.ScannerAppearance.ACCENT); textSize=14f; text="Symulator walki\nWybierz skan. Profil przeciwnika otwórz w grze." }
         stageLabel=TextView(context).apply { textSize=14f;setTypeface(null,android.graphics.Typeface.BOLD) };panel!!.addView(stageLabel)
-        warning=TextView(context).apply { text="NIE DOTYKAJ EKRANU\nTRWA AUTOMATYCZNY ODCZYT";textSize=15f;gravity=Gravity.CENTER;setTextColor(0xFFFFDB76.toInt());setTypeface(null,android.graphics.Typeface.BOLD) };panel!!.addView(warning)
+        warning=eu.komars.forgescanner.ui.ScannerAppearance.handsOffWarning(context);panel!!.addView(warning)
         panel!!.addView(status)
         var downX=0f;var downY=0f;var startX=0;var startY=0
         val drag=android.view.View.OnTouchListener { _,event ->
@@ -330,8 +330,7 @@ class BattleOverlay(private val context: Context) {
         val keys=if(side=="self") listOf("open","name","header","bonuses","weapon","title","skills","close") else listOf("name","header","bonuses","weapon","title","skills")
         val stage=keys.indexOf(runtimeKey)
         val n=if(setup) index else stage.coerceAtLeast(0)
-        val colors=intArrayOf(0xFFFFCF66.toInt(),0xFF67D8F4.toInt(),0xFF84AFFF.toInt(),0xFFBDA0FF.toInt(),0xFF5CE1BD.toInt(),0xFFFF91A6.toInt(),0xFFFFAA67.toInt(),0xFF969DFF.toInt())
-        val color=colors[n.coerceIn(0,7)]
+        val color=eu.komars.forgescanner.ui.ScannerAppearance.stepColor(n)
         stageLabel?.text=if(compact && scanning) "▶ ${if(stage>=0) "${stage+1}/${keys.size}" else "…"} · NIE DOTYKAJ" else if(setup && active && index<steps.size) "Ustaw ${index+1}/${steps.size}: ${labels[steps[index]]}" else if(setup && active) "Konfiguracja gotowa" else if(scanning && stage>=0) "▶ Krok ${n+1}/${keys.size}: ${labels[runtimeKey]}" else if(scanning) "▶ Przygotowanie skanu" else "⌖ Symulator walki"
         stageLabel?.setTextColor(color)
         (panel?.background as? android.graphics.drawable.GradientDrawable)?.setStroke(dp(2),color)
@@ -964,7 +963,7 @@ class BattleOverlay(private val context: Context) {
                 val effect=saved.optDouble(if(type=="MIRA")"criticalReduction"else"fifthBonus",batchResume?.optJSONObject("bonuses")?.optDouble(bonus.name,Double.NaN)?:Double.NaN)
                 val ambiguous=saved.optInt("level") in setOf(3,5,8)
                 val trusted=saved.optBoolean("levelConfirmed")||saved.optString("levelSource") in setOf("effect","glyph","manual","progression")||saved.optBoolean("levelByEffect")
-                if((!ambiguous||trusted)&&CachedFairyPolicy.reusable(saved.has("present")&&!saved.optBoolean("present"),type,saved.optInt("level"),effect)) {
+                if((!ambiguous||trusted)&&CachedFairyPolicy.reusable(saved.has("present")&&!saved.optBoolean("present"),type,saved.optInt("level"),effect,saved.optString("detailRaw"))) {
                     fairyScan=JSONObject(saved.toString());finish();return
                 }
             }
@@ -1065,9 +1064,10 @@ class BattleOverlay(private val context: Context) {
                         val glyphLevel=fairyLevels.acceptedWithGlyph(fairyMemory.recognize(fairyGlyph))
                         val fallback=(glyphLevel?:fairyLevels.accepted())?.takeIf {fairyProgressionEvidence.agreesWith(it)}
                         if(calculated==null&&at<2&&(fallback==null||fairyProgressionEvidence.candidates.isNotEmpty())){status?.text="Sprawdzam współczynnik wróżki i zielony przyrost.";detail(at+1);return@read}
-                        val accepted=calculated?.level?:fallback
+                        val automatic=if(calculated==null&&fallback==null)fairyLevels.automaticChoice(fairyProgressionEvidence.candidates) else null
+                        val accepted=calculated?.level?:fallback?:automatic
                         if(accepted!=null){
-                            fairyScan.put("level",accepted).put("levelConfirmed",false).put("levelSource",if(calculated!=null)"progression"else if(glyphLevel!=null)"glyph"else"views")
+                            fairyScan.put("level",accepted).put("levelConfirmed",false).put("levelSource",if(calculated!=null)"progression"else if(glyphLevel!=null)"glyph"else if(automatic!=null)"single-choice" else"views")
                             if(calculated!=null){fairyScan.put("levelCalculation",fairyProgressions.evidence(calculated));status?.text="Poziom $accepted wyliczony z bonusu i przyrostu.";fairyMemory.remember(accepted,fairyGlyph)}
                             proceed()
                         }

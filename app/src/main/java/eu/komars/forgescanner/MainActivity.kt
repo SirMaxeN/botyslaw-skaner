@@ -794,6 +794,6 @@ class MainActivity : Activity() {
         private val MUTED = eu.komars.forgescanner.ui.ScannerAppearance.MUTED
         private val ACCENT = eu.komars.forgescanner.ui.ScannerAppearance.ACCENT
         private val PRIMARY = eu.komars.forgescanner.ui.ScannerAppearance.PRIMARY
-        private val SUCCESS = Color.rgb(112, 221, 171)
+        private val SUCCESS = eu.komars.forgescanner.ui.ScannerAppearance.SUCCESS
     }
 }

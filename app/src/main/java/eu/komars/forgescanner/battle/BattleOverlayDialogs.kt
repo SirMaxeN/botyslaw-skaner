@@ -254,7 +254,7 @@ class BattleOverlayDialogs(private val context:Context,private val onMinimized:(
         val controls=listOf<android.view.View>(damage,health,fairyType,fairyLevelInput,types,pets,mastery)+listOfNotNull(mountChoice)+fields.values+skillInputs.flatMap {listOf(it.first,it.second)}
         val backgrounds=controls.associateWith {it.background}
         fun markIssues(scrollToFirst:Boolean):Boolean {
-            val invalid=issues();val red=0xFFFF7070.toInt()
+            val invalid=issues();val red=eu.komars.forgescanner.ui.ScannerAppearance.DANGER
             controls.forEach {v ->
                 v.background=backgrounds[v]
                 if(v is EditText)v.error=null

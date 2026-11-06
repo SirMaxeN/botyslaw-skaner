@@ -20,14 +20,32 @@ internal class FullWarStore(context:Context,namespace:String="full_war") {
  }
  companion object {
   const val MODEL="pvp-full-v1"
+  const val REUSE_MILLIS=7*24*60*60*1000L
+  /** Roster powers are rounded to three significant digits (e.g. 424m), so allow that rounding only. */
+  fun samePower(saved:Double,current:Double)=saved.isFinite()&&current.isFinite()&&current>0&&kotlin.math.abs(saved-current)<=maxOf(saved,current)*0.006
   fun hash(s:String)=MessageDigest.getInstance("SHA-256").digest(s.toByteArray()).joinToString(""){"%02x".format(it)}
  }
  private fun key(enemy:Boolean,clan:String,name:String)=hash("${state()?.optString("date")?:LocalDate.now(ZoneId.of("Europe/Warsaw")).toString()}|$enemy|${WarResumePolicy.clanKey(clan)}|${BattleText.normalize(name)}")
+ /**
+  * Incremental reuse: a profile from the last week is reused when the roster still shows the same
+  * clan, nickname and power (within display rounding). Any power change means equipment/stats
+  * changed, so that member alone is scanned again.
+  */
  @Synchronized fun entry(enemy:Boolean,clan:String,member:WarMember):JSONObject? {
-  val direct=runCatching {JSONObject(prefs.getString(key(enemy,clan,member.name),null)!!)}.getOrNull()?.takeIf {it.optString("model")==MODEL&&it.optDouble("power")==member.power&&System.currentTimeMillis()-it.optLong("savedAt") in 0..86_400_000L}
+  val now=System.currentTimeMillis()
+  fun fits(record:JSONObject)=record.optString("model")==MODEL&&now-record.optLong("savedAt") in 0..REUSE_MILLIS&&samePower(record.optDouble("power"),member.power)
+  val direct=runCatching {JSONObject(prefs.getString(key(enemy,clan,member.name),null)!!)}.getOrNull()?.takeIf(::fits)
   if(direct!=null)return checkFairyConfidence(direct)
-  val today=if(state()!=null)System.currentTimeMillis()-86_400_000L else LocalDate.now(ZoneId.of("Europe/Warsaw")).atStartOfDay(ZoneId.of("Europe/Warsaw")).toInstant().toEpochMilli()
-  return prefs.all.values.asSequence().mapNotNull {runCatching {JSONObject(it.toString())}.getOrNull()}.firstOrNull {record->record.optString("model")==MODEL&&record.optLong("savedAt")>=today&&(!record.has("enemy")||record.optBoolean("enemy")==enemy)&&WarResumePolicy.sameClan(record.optString("clan"),clan)&&BattleText.normalize(record.optString("name"))==BattleText.normalize(member.name)&&record.optDouble("power")==member.power}?.let(::checkFairyConfidence)
+  return prefs.all.values.asSequence().mapNotNull {runCatching {JSONObject(it.toString())}.getOrNull()}
+   .filter {record->fits(record)&&(!record.has("enemy")||record.optBoolean("enemy")==enemy)&&WarResumePolicy.sameClan(record.optString("clan"),clan)&&BattleText.normalize(record.optString("name"))==BattleText.normalize(member.name)}
+   .sortedWith(compareByDescending<JSONObject> {it.optBoolean("complete")}.thenByDescending {it.optLong("savedAt")}).firstOrNull()?.let(::checkFairyConfidence)
+ }
+ /** Complete profiles of one clan kept for reuse, newest per nickname. */
+ @Synchronized fun completeProfiles(enemy:Boolean,clan:String):List<JSONObject> {
+  val now=System.currentTimeMillis()
+  return prefs.all.values.asSequence().mapNotNull {runCatching {JSONObject(it.toString())}.getOrNull()}
+   .filter {it.optString("model")==MODEL&&it.optBoolean("complete")&&now-it.optLong("savedAt") in 0..REUSE_MILLIS&&(!it.has("enemy")||it.optBoolean("enemy")==enemy)&&WarResumePolicy.sameClan(it.optString("clan"),clan)}
+   .groupBy {BattleText.normalize(it.optString("name"))}.values.map {group->group.maxBy {it.optLong("savedAt")}}.toList()
  }
  private fun checkFairyConfidence(record:JSONObject):JSONObject {
   val fairy=(record.optJSONObject("profile")?:record.optJSONObject("draft"))?.optJSONObject("fairy")?:return record
@@ -74,6 +92,8 @@ internal class FullWarStore(context:Context,namespace:String="full_war") {
  @Synchronized fun attempted(enemy:Boolean,clan:String,member:WarMember)=entry(enemy,clan,member)?.let {it.optJSONObject("draft")!=null||it.optBoolean("complete")}==true
  @Synchronized fun pair(key:String):JSONObject? = pairs.rawQuery("SELECT payload FROM pair_results WHERE cache_key=?",arrayOf(key)).use {if(it.moveToFirst())runCatching {JSONObject(it.getString(0))}.getOrNull()else null}
  @Synchronized fun pair(key:String,value:JSONObject) {pairs.execSQL("INSERT OR REPLACE INTO pair_results VALUES(?,?,?)",arrayOf(key,value.toString(),System.currentTimeMillis()))}
- @Synchronized fun prune() {val boundary=System.currentTimeMillis()-2*24*60*60*1000L;val edit=prefs.edit();prefs.all.forEach {(key,value)->if(runCatching {JSONObject(value.toString()).optLong("savedAt",0)<boundary}.getOrDefault(true))edit.remove(key)};edit.apply();pairs.execSQL("DELETE FROM pair_results WHERE saved_at<?",arrayOf(boundary))}
+ @Synchronized fun prune() {val boundary=System.currentTimeMillis()-REUSE_MILLIS-24*60*60*1000L;val edit=prefs.edit();prefs.all.forEach {(key,value)->if(runCatching {JSONObject(value.toString()).optLong("savedAt",0)<boundary}.getOrDefault(true))edit.remove(key)};edit.apply();pairs.execSQL("DELETE FROM pair_results WHERE saved_at<?",arrayOf(boundary))}
+ /** Start a new navigation run but keep every saved profile and cached pair for incremental reuse. */
+ @Synchronized fun resetRun() {pairs.execSQL("DELETE FROM run_state");pairs.execSQL("DELETE FROM roster_state")}
  @Synchronized fun clear() {prefs.edit().clear().commit();pairs.execSQL("DELETE FROM pair_results");pairs.execSQL("DELETE FROM run_state");pairs.execSQL("DELETE FROM roster_state")}
 }

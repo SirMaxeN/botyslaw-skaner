@@ -25,7 +25,7 @@ internal class RosterRepairDialog(private val context:Context) {
     setText(value.orEmpty());setSingleLine(true);setTextColor(Style.FOREGROUND);textSize=16f
     inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
     hint=if(numeric)"np. 1.23b lub 897m"else"Nick gracza";setHintTextColor(Style.MUTED)
-    background=Style.rounded(context,Style.INPUT_BACKGROUND,8,if(value==null)0xFFFF7070.toInt()else Style.BORDER)
+    background=Style.rounded(context,Style.INPUT_BACKGROUND,8,if(value==null)eu.komars.forgescanner.ui.ScannerAppearance.DANGER else Style.BORDER)
     setPadding(Style.dp(context,10),Style.dp(context,10),Style.dp(context,10),Style.dp(context,10));body.addView(this,LinearLayout.LayoutParams(-1,-2))
    }
   }

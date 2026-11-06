@@ -10,9 +10,9 @@ internal data class MemberProfileAnchor(val member:String,val width:Int,val heig
 }
 
 internal object CachedFairyPolicy {
- fun reusable(absent:Boolean,type:String,level:Int,effect:Double):Boolean {
+ fun reusable(absent:Boolean,type:String,level:Int,effect:Double,detail:String=""):Boolean {
   if(absent)return true
   if(level !in 1..20)return false
-  return when(type){"LORA"->effect.isFinite()&&effect>0;"MIRA"->effect.isFinite()&&effect>0&&effect<=70;"TIRA"->true;else->false}
+  return when(type){"LORA"->effect.isFinite()&&effect>0;"MIRA"->(effect.isFinite()&&effect>0&&effect<=70)||FairyEffects.miraCoefficient(detail)!=null;"TIRA"->true;else->false}
  }
 }

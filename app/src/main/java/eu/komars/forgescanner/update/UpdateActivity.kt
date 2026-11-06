@@ -30,7 +30,7 @@ class UpdateActivity : Activity() {
         }
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER
-            setPadding(40,40,40,40); setBackgroundColor(0xff101827.toInt())
+            setPadding(40,40,40,40); setBackgroundColor(eu.komars.forgescanner.ui.ScannerAppearance.BACKGROUND)
         }
         layout.addView(ProgressBar(this))
         layout.addView(TextView(this).apply {
@@ -80,7 +80,7 @@ class UpdateActivity : Activity() {
         playDialog?.dismiss(); playDialog = null
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER
-            setPadding(40, 40, 40, 40); setBackgroundColor(0xff101827.toInt())
+            setPadding(40, 40, 40, 40); setBackgroundColor(eu.komars.forgescanner.ui.ScannerAppearance.BACKGROUND)
         }
         layout.addView(ProgressBar(this))
         layout.addView(TextView(this).apply {

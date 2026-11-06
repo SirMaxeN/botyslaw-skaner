@@ -1,5 +1,15 @@
 # Change log
 
+## AUTO Test 71 (1.3.1-auto-test, unreleased)
+
+- Calculate Mira's critical-damage reduction from its per-step coefficient and the scanned skill-cooldown bonus (whole -4% steps, 70% pool cap). The Mira window never shows a current bonus.
+- Simulate Tira under the season 2026-11 rules (damage per health, already part of displayed damage) instead of rejecting every pair.
+- Accept an unambiguous single fairy-level suggestion automatically; 3/5/8 still need agreement with the progression calculation.
+- Incremental full scans: reuse a profile for 7 days while nickname and roster power match (±0.6%). "New scan" keeps profiles; deleting them is a separate confirmed action.
+- New Ranking klanu mode: scan or reuse our clan, round-robin simulations without war bonuses, upload to /report clan-ranking.
+- One visual system for all screens and overlays (ScannerAppearance): single accent, panel background, step palette, overlay buttons and hands-off warning.
+- Private foreground-loss diagnostics (window owner/class) in cache/foreground-loss.txt.
+
 ## 1.2.10 (34)
 
 - Restore the normal saved-coordinate route without screen classification before or after each navigation tap. Retain foreground, gesture-session, geometry, touch-shield and STOP checks.

@@ -23,6 +23,12 @@ internal class FairyLevelEvidence {
  fun accepted():Int? {
   val value=candidates.singleOrNull()?:return null
   if(value in setOf(3,5,8))return null
-  return value.takeIf {profile.size>=2 && detail.size>=2}
+  // Two agreeing reads, including the fairy window itself, are enough for an unambiguous digit.
+  return value.takeIf {detail.isNotEmpty() && profile.size+detail.size>=2}
+ }
+ /** The only remaining suggestion is chosen automatically unless it is the known 3/5/8 OCR confusion. */
+ fun automaticChoice(calculated:List<Int>):Int? {
+  val single=FairyLevelChoices.values(candidates,calculated).singleOrNull()?:return null
+  return single.takeIf {it !in setOf(3,5,8)||calculated==listOf(it)}
  }
 }

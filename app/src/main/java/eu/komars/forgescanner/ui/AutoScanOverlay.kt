@@ -122,13 +122,13 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
         val box = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(12), dp(8), dp(12), dp(8))
-            background = GradientDrawable().apply { setColor(0xFF10212B.toInt()); setStroke(dp(2), stepColor()); cornerRadius = dp(16).toFloat() }
+            background = ScannerAppearance.overlayPanel(context, stepColor())
         }
         if (running || returningHome) box.addView(TextView(context).apply {
             text = "NIE DOTYKAJ EKRANU\nTRWA AUTOMATYCZNY ODCZYT"
             textSize = 15f
             setTypeface(null, android.graphics.Typeface.BOLD)
-            setTextColor(0xFFFFDB76.toInt())
+            setTextColor(ScannerAppearance.WARNING)
             gravity = Gravity.CENTER
             setPadding(dp(4), dp(5), dp(4), dp(7))
         })
@@ -910,14 +910,11 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
     }
     private fun removePanel() { root?.let { runCatching { manager.removeView(it) } }; root = null; label = null; liveLabel = null; runtimePanel = false; finishListButton = null }
     private fun text(value: String, size: Float, bold: Boolean = false) = TextView(context).apply { text = value; textSize = size; setTextColor(if (bold) stepColor() else Color.WHITE); setPadding(0, dp(3), 0, dp(3)) }
-    private fun button(value: String, action: () -> Unit) = Button(context).apply { text = value; isAllCaps = false; textSize = 11f; minWidth = 0; minimumWidth = 0; minHeight = dp(44); minimumHeight = dp(44); setPadding(dp(6), 0, dp(6), 0); gravity = Gravity.CENTER; maxLines = 2; setOnClickListener { action() } }
+    private fun button(value: String, action: () -> Unit) = ScannerAppearance.overlayAction(context, value) { action() }.apply { textSize = 12f; minHeight = dp(44); minimumHeight = dp(44) }
     private fun weight() = LinearLayout.LayoutParams(0, dp(48), 1f)
     private fun stepColor(): Int {
-        val colors = intArrayOf(0xFFFFCF66.toInt(), 0xFF67D8F4.toInt(), 0xFF84AFFF.toInt(), 0xFFBDA0FF.toInt(),
-            0xFF5CE1BD.toInt(), 0xFFFF91A6.toInt(), 0xFFFFAA67.toInt(), 0xFF969DFF.toInt(), 0xFF9BE171.toInt(),
-            0xFFE6D16A.toInt(), 0xFFFFADBD.toInt(), 0xFFE59AF7.toInt(), 0xFFEE8B6D.toInt())
         val index = if (running) activeStep?.ordinal else setupIndex
-        return colors[(index ?: 0).coerceIn(0, colors.lastIndex)]
+        return ScannerAppearance.stepColor(index ?: 0)
     }
     private fun dp(value: Int) = (value * context.resources.displayMetrics.density).toInt()
     private fun recycle(bitmap: Bitmap) { if (!bitmap.isRecycled) bitmap.recycle() }
