@@ -195,26 +195,20 @@ class BattleOverlay(private val context: Context) {
             icon("✕","Zakończ odczyt ekranu") { (context.applicationContext as eu.komars.forgescanner.ScannerApplication).closeScanner() }
             panel!!.addView(mini,0)
         }
-        val row=LinearLayout(context)
-        fun button(label: String, action:()->Unit) { row.addView(Button(context).apply {
-            text=label; textSize=11f; isAllCaps=false; setPadding(dp(4),0,dp(4),0); minWidth=0;minimumWidth=0;minHeight=dp(44);minimumHeight=dp(44);gravity=Gravity.CENTER;maxLines=2
-            setOnClickListener { action() }
-        },LinearLayout.LayoutParams(0,dp(48),1f)) }
+        val row=eu.komars.forgescanner.ui.ScannerAppearance.actionRow(context)
+        fun button(label: String, action:()->Unit) { row.addView(eu.komars.forgescanner.ui.ScannerAppearance.overlayAction(context,label) { action() }.apply { textSize=12f },eu.komars.forgescanner.ui.ScannerAppearance.rowItem(context)) }
         button("Skanuj moje") { if(!active && ready("self")) beginSide("self") }
         button("Skanuj przeciwnika") { if(!active && ready("opponent")) beginSide("opponent") }
         (row.getChildAt(0) as Button).also { scanButtons+=it to "self" }
         (row.getChildAt(1) as Button).also { scanButtons+=it to "opponent" }
         panel!!.addView(row)
-        val repeatRow=LinearLayout(context)
-        repeatRow.addView(Button(context).apply {
-            text="↻ Powtórz walkę";isAllCaps=false;setOnClickListener { if(!active && dialogs.canRepeat()) dialogs.chooseBattle() }
+        val repeatRow=eu.komars.forgescanner.ui.ScannerAppearance.actionRow(context)
+        repeatRow.addView(eu.komars.forgescanner.ui.ScannerAppearance.overlayAction(context,"↻ Powtórz walkę") { if(!active && dialogs.canRepeat()) dialogs.chooseBattle() }.apply {
             repeatButtons+=this
-        },LinearLayout.LayoutParams(-1,dp(44)))
+        },eu.komars.forgescanner.ui.ScannerAppearance.rowItem(context))
         panel!!.addView(repeatRow)
-        val tools=LinearLayout(context)
-        fun tool(label:String,action:()->Unit) { tools.addView(Button(context).apply {
-            text=label;isAllCaps=false;textSize=10f;minWidth=0;minimumWidth=0;setPadding(dp(2),0,dp(2),0);setOnClickListener { action() }
-        },LinearLayout.LayoutParams(0,dp(44),1f)) }
+        val tools=eu.komars.forgescanner.ui.ScannerAppearance.actionRow(context)
+        fun tool(label:String,action:()->Unit) { tools.addView(eu.komars.forgescanner.ui.ScannerAppearance.overlayAction(context,label) { action() }.apply { textSize=12f },eu.komars.forgescanner.ui.ScannerAppearance.rowItem(context,48)) }
         tool("Zwiń") { if(!active) { compact=true;refreshChrome() } }
         tool("Zakończ") { (context.applicationContext as eu.komars.forgescanner.ScannerApplication).closeScanner() }
         tool("Menu") { if(!active) dialogs.choose(listOf(
@@ -228,12 +222,12 @@ class BattleOverlay(private val context: Context) {
             "Dane przeciwnika" to { dialogs.review("opponent") { refreshChrome() } },
             "Zakończ odczyt i zamknij" to { (context.applicationContext as eu.komars.forgescanner.ScannerApplication).closeScanner() })) }
         panel!!.addView(tools)
-        setupRow=LinearLayout(context).also { initial ->
-            initial.addView(Button(context).apply { text=if(partialSetup("self") || ready("self")) "Kontynuuj" else "Ustaw pole";isAllCaps=false;setOnClickListener { if(!active) continueSetup() } },LinearLayout.LayoutParams(-1,dp(48)))
+        setupRow=eu.komars.forgescanner.ui.ScannerAppearance.actionRow(context).also { initial ->
+            initial.addView(eu.komars.forgescanner.ui.ScannerAppearance.overlayAction(context,if(partialSetup("self") || ready("self")) "Kontynuuj" else "Ustaw pole",primary=true) { if(!active) continueSetup() },eu.komars.forgescanner.ui.ScannerAppearance.rowItem(context))
             panel!!.addView(initial,panel!!.indexOfChild(tools))
         }
         idleRows.addAll(listOf(row,repeatRow,tools))
-        runRow=LinearLayout(context).also { running ->
+        runRow=eu.komars.forgescanner.ui.ScannerAppearance.actionRow(context).also { running ->
             running.addView(eu.komars.forgescanner.ui.ScannerAppearance.overlayAction(context,"STOP") { (context.applicationContext as eu.komars.forgescanner.ScannerApplication).closeScanner() },LinearLayout.LayoutParams(-1,dp(48)))
             panel!!.addView(running)
         }
@@ -736,7 +730,7 @@ class BattleOverlay(private val context: Context) {
     private fun verifyBatchName(next:()->Unit) {
         val expected=batchExpectedName
         if(expected==null){next();return}
-        fun matches()=BattleText.normalize(name)==BattleText.normalize(expected)
+        fun matches()=NameMatch.same(BattleText.playerName(name),expected)
         fun accept(){batchIdentityVerified=true;next()}
         if(matches()){accept();return}
         if(!fields.has("_batchName")){fail("Nie potwierdzono nicku $expected (OCR: $name).");return}

@@ -1,5 +1,17 @@
 # Change log
 
+## AUTO Test 74 (1.3.1-auto-test, unreleased)
+
+- One "Odczyt listy wojennej" button replaces the power-only list, list test and full-profile test buttons. Sunday: rival bonuses are scanned and the list is saved once. Other days: the rival gets our clan's bonuses, the read is repeatable and the list disappears with the weekly reset.
+- "Odczyt rankingu klanu" is a regular button; overlay titles follow the new names.
+- Missing profiles are revisited automatically (up to 3 rounds) before simulations; power is only the last resort.
+- Nickname check tolerates OCR spacing and confusable characters (0/o, 1/l/i, 5/s, one edit for 5+ letters) after the avatar match.
+- Clan tags read as "(_PL_J" or "[_PL_]" are shown as "[PL]".
+
+## AUTO Test 73 (1.3.1-auto-test, unreleased)
+
+- Shared overlay button rows (ScannerAppearance.actionRow/rowItem): no baseline alignment, equal heights and a fixed gap, so a two-line label no longer pushes its neighbour down. Applied to war/ranking, battle, automatic resource scan and the field selector; the battle overlay's remaining platform buttons use the shared overlay style.
+
 ## AUTO Test 72 (1.3.1-auto-test, unreleased)
 
 - Ignore transient SystemUI FrameLayout windows (heads-up notifications, status-bar chips) in the foreground check; they stopped scans every few minutes although the game kept focus. SystemUI dialogs, permission screens and other apps still stop the scan.

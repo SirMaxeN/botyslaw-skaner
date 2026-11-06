@@ -80,8 +80,8 @@ class ScreenSelectionWindow(
             middle.addView(scroll, LinearLayout.LayoutParams(dp(112), -1))
         }
         container.addView(middle, LinearLayout.LayoutParams(-1, 0, 1f))
-        val actions = LinearLayout(context)
-        actions.addView(button("Anuluj") { if (active) { close(); onCancel() } }, LinearLayout.LayoutParams(0, -2, 1f))
+        val actions = ScannerAppearance.actionRow(context)
+        actions.addView(button("Anuluj") { if (active) { close(); onCancel() } }, ScannerAppearance.rowItem(context))
         actions.addView(button("Zatwierdź") {
             if (!active) return@button
             if (onFields != null) {
@@ -99,7 +99,7 @@ class ScreenSelectionWindow(
                 close()
                 onResult(rect, columns, rowHeight)
             }
-        }, LinearLayout.LayoutParams(0, -2, 1f))
+        }, ScannerAppearance.rowItem(context))
         container.addView(actions)
         root = container
         manager.addView(container, WindowManager.LayoutParams(
@@ -120,10 +120,8 @@ class ScreenSelectionWindow(
         // Owner releases bitmap after the result/cancel callback has finished using it.
     }
 
-    private fun button(label: String, action: () -> Unit) = Button(context).apply {
-        text = label; textSize = 12f; isAllCaps = false
-        minWidth = dp(52); minimumWidth = dp(52)
-        setOnClickListener { action() }
+    private fun button(label: String, action: () -> Unit) = ScannerAppearance.overlayAction(context, label) { action() }.apply {
+        textSize = 13f; minWidth = dp(52); minimumWidth = dp(52)
     }
     /** Draw the same wrapped text layout as the native button, with a dark contour first. */
     // The overlay uses the platform Theme.Material, like all adjacent native buttons.

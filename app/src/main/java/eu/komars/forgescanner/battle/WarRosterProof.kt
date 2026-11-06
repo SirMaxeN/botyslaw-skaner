@@ -11,7 +11,16 @@ internal object WarRosterProof {
   return lines.take(end).lastOrNull {line ->
    val n=BattleText.normalize(line)
    line.any(Char::isLetter) && !Regex("^(dzien|day|postep|war progress|mvp)\\b").containsMatchIn(n)
-  }?.takeIf {key(it).length>=2}
+  }?.takeIf {key(it).length>=2}?.let(::displayName)
+ }
+ /**
+  * OCR reads the clan tag's square brackets as "(" and "J"/")" and keeps the decorative underscores:
+  * "PolskaMoc(_PL_J" and "PolskaMOC[_PL_]" both mean "PolskaMoc[PL]". Only a trailing tag is rewritten.
+  */
+ fun displayName(raw:String):String {
+  val match=Regex("""^(.*?)\s*[\[(]\s*_*\s*([A-Za-z0-9]{1,6})\s*_*\s*[\])Jj|]?\s*$""").find(raw.trim())?:return raw.trim()
+  val name=match.groupValues[1].trim();val tag=match.groupValues[2].uppercase()
+  return if(name.isEmpty())raw.trim() else "$name[$tag]"
  }
  /** A strict cached-image check also catches the same header when OCR spells its clan tag differently. */
  fun headerSnapshot(w:Int,h:Int,p:IntArray):IntArray {

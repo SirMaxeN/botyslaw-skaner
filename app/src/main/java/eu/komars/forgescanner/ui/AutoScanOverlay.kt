@@ -141,7 +141,7 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
             box.addView(it)
         }
         if (setup != null && !running && !validating) box.addView(text(ResourceSetupScreens.forStep(setup).instruction, 11f))
-        val actions = LinearLayout(context)
+        val actions = ScannerAppearance.actionRow(context)
         if(!running && !validating && !returningHome) box.addView(button("Zwiń do ikon") {compactIcons=true;show()})
         if (validating) {
             actions.addView(button(if (returningHome) "STOP" else "Anuluj") { if (returningHome) (context.applicationContext as ScannerApplication).closeScanner() else cancelValidation() }, weight())
@@ -911,7 +911,7 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
     private fun removePanel() { root?.let { runCatching { manager.removeView(it) } }; root = null; label = null; liveLabel = null; runtimePanel = false; finishListButton = null }
     private fun text(value: String, size: Float, bold: Boolean = false) = TextView(context).apply { text = value; textSize = size; setTextColor(if (bold) stepColor() else Color.WHITE); setPadding(0, dp(3), 0, dp(3)) }
     private fun button(value: String, action: () -> Unit) = ScannerAppearance.overlayAction(context, value) { action() }.apply { textSize = 12f; minHeight = dp(44); minimumHeight = dp(44) }
-    private fun weight() = LinearLayout.LayoutParams(0, dp(48), 1f)
+    private fun weight() = ScannerAppearance.rowItem(context)
     private fun stepColor(): Int {
         val index = if (running) activeStep?.ordinal else setupIndex
         return ScannerAppearance.stepColor(index ?: 0)

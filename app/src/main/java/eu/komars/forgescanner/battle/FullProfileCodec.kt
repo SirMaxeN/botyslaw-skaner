@@ -5,7 +5,7 @@ import org.json.JSONArray
 internal class BatchScanException(message:String,val draft:JSONObject):IllegalStateException(message)
 internal object FullProfileCodec {
  fun accept(expected:String,draft:JSONObject):JSONObject {
-  require(BattleText.normalize(BattleText.playerName(draft.optString("name")))==BattleText.normalize(expected)) {"Nick profilu nie zgadza się z wybraną kartą: ${draft.optString("name")}."}
+  require(NameMatch.same(BattleText.playerName(draft.optString("name")),expected)) {"Nick profilu nie zgadza się z wybraną kartą: ${draft.optString("name")}."}
   val damage=BattleText.number(draft.optString("damage"));val health=BattleText.number(draft.optString("health"))
   require(damage!=null&&damage>0&&health!=null&&health>0) {"Brak łącznych obrażeń lub zdrowia."}
   val ranged=BattleText.weapon(draft.optString("weapon"));require(ranged!=null) {"Brak typu broni."}

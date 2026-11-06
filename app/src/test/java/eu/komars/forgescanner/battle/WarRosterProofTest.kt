@@ -3,8 +3,8 @@ import org.junit.Assert.*
 import org.junit.Test
 class WarRosterProofTest {
  @Test fun readsClanAboveMetadataNotNamesBelowIt() {
-  assertEquals("PolskaMOC[_PL_]",WarRosterProof.clan("4,869,871\nPolskaMOC[_PL_]\nPoziom-S+\nŁączna Moc: 42.8b\nTechnologie Klanu: 0.15%\nCzłonkowie: 50/50\nSirMaxeN"))
-  assertEquals("Enemy [ABC]",WarRosterProof.clan("Enemy [ABC]\nLevel S+\nTotal power: 100b\nMembers: 47/50"))
+  assertEquals("PolskaMOC[PL]",WarRosterProof.clan("4,869,871\nPolskaMOC[_PL_]\nPoziom-S+\nŁączna Moc: 42.8b\nTechnologie Klanu: 0.15%\nCzłonkowie: 50/50\nSirMaxeN"))
+  assertEquals("Enemy[ABC]",WarRosterProof.clan("Enemy [ABC]\nLevel S+\nTotal power: 100b\nMembers: 47/50"))
   assertNull(WarRosterProof.clan("Członkowie: 50/50\nSirMaxeN"))
   assertNull(WarRosterProof.clan("Dzień 2\nCzłonkowie: 50/50"))
  }
@@ -27,5 +27,11 @@ class WarRosterProofTest {
   assertFalse(WarRosterProof.complete(a,b,1,1,"ClanA","ClanA"))
   assertFalse(WarRosterProof.complete(a,a.reversed(),1,1,"ClanA","ClanB"))
   assertFalse(WarRosterProof.complete(a,b,1,1,null,"ClanB"))
+ }
+ @org.junit.Test fun clanTagOcrBracketsAreRestored() {
+  assertEquals("PolskaMoc[PL]",WarRosterProof.displayName("PolskaMoc(_PL_J"))
+  assertEquals("PolskaMoc[PL]",WarRosterProof.displayName("PolskaMoc[_PL_]"))
+  assertEquals("PolskaMoc[PL]",WarRosterProof.displayName("PolskaMoc (PL)"))
+  assertEquals("Klan bez tagu",WarRosterProof.displayName("Klan bez tagu"))
  }
 }

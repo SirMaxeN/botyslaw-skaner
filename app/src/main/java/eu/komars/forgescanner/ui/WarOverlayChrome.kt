@@ -17,7 +17,7 @@ internal class WarOverlayChrome(private val context:Context,private val stop:()-
  val recovery=LinearLayout(context).apply {orientation=LinearLayout.VERTICAL}
  private val fullHeader=LinearLayout(context).apply {gravity=Gravity.CENTER_VERTICAL}
  private val compactRow=LinearLayout(context).apply {gravity=Gravity.CENTER;isBaselineAligned=false}
- private val controls=LinearLayout(context)
+ private val controls=ScannerAppearance.actionRow(context)
  private val scroll=object:ScrollView(context) {
   override fun onMeasure(w:Int,h:Int) {super.onMeasure(w,View.MeasureSpec.makeMeasureSpec(minOf(dp(360),(screen.height()*.60).toInt()),View.MeasureSpec.AT_MOST))}
  }.apply {isFillViewport=false;addView(content)}
@@ -42,10 +42,10 @@ internal class WarOverlayChrome(private val context:Context,private val stop:()-
   compactRow.addView(handle(),LinearLayout.LayoutParams(dp(24),ScannerIconBar.cell(context,3)))
   for(button in listOf(ScannerIconBar.button(context,"⛶","Rozwiń nakładkę") {setCompact(false)},boundaryIcon,ScannerIconBar.button(context,"✕","Zakończ odczyt ekranu",stop)))compactRow.addView(button,LinearLayout.LayoutParams(ScannerIconBar.cell(context,3),ScannerIconBar.cell(context,3)))
   root.addView(fullHeader);root.addView(compactRow);root.addView(scroll)
-  controls.addView(ScannerAppearance.overlayAction(context,"STOP / Zakończ",action=stop),LinearLayout.LayoutParams(0,-2,1f));root.addView(controls)
+  controls.addView(ScannerAppearance.overlayAction(context,"STOP / Zakończ",action=stop),ScannerAppearance.rowItem(context));root.addView(controls)
   compactRow.visibility=View.GONE;boundaryIcon.visibility=View.GONE
  }
- fun addListControl(view:View){controls.addView(view,LinearLayout.LayoutParams(0,-2,1f))}
+ fun addListControl(view:View){controls.addView(view,ScannerAppearance.rowItem(context))}
  fun listMode(enabled:Boolean,rewinding:Boolean) {val visibility=if(enabled)View.VISIBLE else View.GONE;val changed=boundaryIcon.visibility!=visibility;boundaryIcon.visibility=visibility;boundaryIcon.contentDescription=if(rewinding)"Lista jest na górze"else"Zatrzymaj listę";if(changed)resize()}
  fun show() {
   wm.addView(root,WindowManager.LayoutParams(minOf(dp(250),screen.width()-dp(16)),-2,WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,PixelFormat.TRANSLUCENT).apply {

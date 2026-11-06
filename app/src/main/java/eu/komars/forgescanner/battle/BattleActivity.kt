@@ -34,7 +34,7 @@ class BattleActivity: Activity() {
         if(state==CaptureState.READY && requested) {
             requested=false
             val side=pending ?: "self"
-            if(side=="clan-ranking")app.warOverlay.offer(false,full=true,ranking=true)else if(side=="war-full-test")app.warOverlay.offer(true,test=true,full=true)else if(side=="war-test") app.warOverlay.offer(true,test=true) else if(side=="war-prep" || side=="war-list") app.warOverlay.offer(side=="war-list") else app.battleOverlay.show(side)
+            if(side=="clan-ranking")app.warOverlay.offer(false,full=true,ranking=true)else if(side=="war-list")app.warOverlay.offer(true,test=WarPreparationModel.day()==null,full=true)else if(side=="war-prep")app.warOverlay.offer(false) else app.battleOverlay.show(side)
             packageManager.getLaunchIntentForPackage("com.hariwn.legendofcivilizations")?.let { startActivity(it) }
                 ?: Toast.makeText(this,"Otwórz Forge Master ręcznie",Toast.LENGTH_LONG).show()
         } else if(state==CaptureState.ERROR) { requested=false; message(detail ?: "Nie udało się uruchomić odczytu") }
@@ -108,29 +108,23 @@ class BattleActivity: Activity() {
         }
         val open=WarPreparationModel.day()!=null
         if(app.battleOverlay.isConfigured()) {
-            val listButton=button("Lista wojenna",enabled=open && app.mobile.paired) { prepare("war-list") }
+            val listButton=button("Odczyt listy wojennej",enabled=app.mobile.paired) { prepare("war-list") }
             if(open && app.mobile.paired) {
                 listButton.isEnabled=false
-                listButton.text="Lista wojenna — sprawdzam dostępność…"
+                listButton.text="Odczyt listy wojennej — sprawdzam…"
                 app.mobile.warStatus { result ->
                     if(!isFinishing && !isDestroyed && listButton.parent===body) {
-                        result.map { JSONObject(it).getBoolean("locked") }.fold({ locked ->
-                            listButton.isEnabled=!locked && WarPreparationModel.day()!=null
-                            listButton.text=if(locked) "Lista wojenna — już utworzona" else "Lista wojenna"
-                            listButton.contentDescription=if(locked) "Lista na tę wojnę została już utworzona na tym serwerze Discorda. Nie nadpisujemy jej." else "Lista wojenna"
-                        },{
-                            listButton.text="Lista wojenna"
-                            listButton.isEnabled=WarPreparationModel.day()!=null
-                        })
+                        val locked=result.map { JSONObject(it).getBoolean("locked") }.getOrDefault(false)
+                        listButton.isEnabled=!locked
+                        listButton.text=if(locked) "Lista na tę wojnę już utworzona" else "Odczyt listy wojennej"
+                        listButton.contentDescription=if(locked) "Lista na tę wojnę została już utworzona na tym serwerze Discorda. Nie nadpisujemy jej." else "Odczyt listy wojennej"
                     }
                 }
             }
+            button("Odczyt rankingu klanu",enabled=app.mobile.paired) { prepare("clan-ranking") }
+            label(if(open) "Niedziela: odczytam też bonusy rywala. Listę na tę wojnę zapisuję raz." else "Poza niedzielą rywal dostaje takie same bonusy jak nasz klan. Odczyt można powtarzać; lista znika po resecie tygodnia.",13)
         }
-        if(eu.komars.forgescanner.BuildConfig.DEBUG && packageName.endsWith(".autotest") && app.battleOverlay.isConfigured()) button("Test listy wojennej",enabled=app.mobile.paired) {prepare("war-test")}
-        if(eu.komars.forgescanner.BuildConfig.DEBUG && packageName.endsWith(".autotest") && app.battleOverlay.isConfigured()) button("Pełne profile klanów + symulacje (TEST)",enabled=app.mobile.paired) {prepare("war-full-test")}
-        if(eu.komars.forgescanner.BuildConfig.DEBUG && packageName.endsWith(".autotest") && app.battleOverlay.isConfigured()) button("Ranking klanu",enabled=app.mobile.paired) {prepare("clan-ranking")}
-        if(!open) label("Lista wojenna: niedziela 01:00 – poniedziałek 01:00 (czas polski).",13)
-        if(!app.mobile.paired) label("Przygotowanie wojenne i lista wymagają połączenia z Discordem w menu głównym.",13)
+        if(!app.mobile.paired) label("Lista wojenna i ranking wymagają połączenia z Discordem w menu głównym.",13)
         button("Menu główne") { app.closeScanner();startActivity(Intent(this,eu.komars.forgescanner.HomeActivity::class.java)) }
         eu.komars.forgescanner.ui.SupportFooter.add(this,body)
     }

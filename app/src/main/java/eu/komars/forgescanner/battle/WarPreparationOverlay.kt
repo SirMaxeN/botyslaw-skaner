@@ -43,6 +43,8 @@ class WarPreparationOverlay(private val context:Context) {
  private val fullCentered=mutableSetOf<String>()
  private var fullRepairPass=false
  private var rankingMode=false
+ private var fullAutoRetry=0
+ private val maxAutoRetry=3
  private var fullEnemySwept=false
  private var lastFullViewport:List<Pair<Int,Int>> = emptyList()
  private var stableFullViewport=0
@@ -156,8 +158,8 @@ class WarPreparationOverlay(private val context:Context) {
   panel=LinearLayout(context).apply {
    orientation=LinearLayout.VERTICAL;setPadding(dp(12),dp(8),dp(12),dp(8))
    background=ScannerAppearance.overlayPanel(context)
-   addView(ScannerAppearance.title(context,if(full)"Pełne profile i symulacje · TEST"else if(test)"Test listy wojennej" else "Przygotowanie wojenne"))
-   addView(ScannerAppearance.body(context,if(full)"Odczytam profile obu klanów. Profile z ostatnich 7 dni z niezmienioną mocą pomijam — skanuję tylko nowych i zmienionych graczy. STOP zapisuje postęp. Test zakłada równe bonusy klanów."else "Poczekaj, aż gra się uruchomi. Rozpocznij przyciskiem poniżej."))
+   addView(ScannerAppearance.title(context,if(full)"Odczyt listy wojennej" else "Przygotowanie wojenne"))
+   addView(ScannerAppearance.body(context,if(full)"Odczytam profile obu klanów. Profile z ostatnich 7 dni z niezmienioną mocą pomijam — skanuję tylko nowych i zmienionych graczy. STOP zapisuje postęp. "+(if(test)"Poza niedzielą rywal dostaje takie same bonusy jak nasz klan." else "W niedzielę odczytam też bonusy rywala; listę na tę wojnę zapisuję raz.")else "Poczekaj, aż gra się uruchomi. Rozpocznij przyciskiem poniżej."))
    addView(ScannerAppearance.overlayAction(context,"Skanuj / Rozpocznij") {start(roster,configureAll,test,full)})
    if(full)addView(ScannerAppearance.overlayAction(context,"Nowy skan — aktualizuj tylko zmiany") {fullStore.resetRun();start(roster,configureAll,test,full)})
    if(full)addView(ScannerAppearance.button(context,"Usuń zapisane profile i skanuj od zera",quiet=true) {confirmClear {fullStore.clear();start(roster,configureAll,test,full)}})
@@ -176,7 +178,7 @@ class WarPreparationOverlay(private val context:Context) {
   panel=LinearLayout(context).apply {
    orientation=LinearLayout.VERTICAL;setPadding(dp(12),dp(8),dp(12),dp(8))
    background=ScannerAppearance.overlayPanel(context)
-   addView(ScannerAppearance.title(context,"Ranking klanu"))
+   addView(ScannerAppearance.title(context,"Odczyt rankingu klanu"))
    addView(ScannerAppearance.body(context,"Każdy gracz naszego klanu walczy z każdym (bez bonusów wojennych). Profile z ostatnich 7 dni z niezmienioną mocą pomijam. Wynik trafia do /report clan-ranking."))
    addView(ScannerAppearance.overlayAction(context,"Skanuj nasz klan — aktualizuj zmiany") {start(false,full=true,ranking=true)})
    if(saved!=null)addView(ScannerAppearance.overlayAction(context,"Przelicz z zapisanych profili (${saved.second.size} graczy)") {start(false,full=true,ranking=true,savedOnly=true)})
@@ -190,15 +192,15 @@ class WarPreparationOverlay(private val context:Context) {
   o.getString("clan") to (0 until list.length()).map {WarMember(list.getJSONObject(it).getString("name"),list.getJSONObject(it).getDouble("power"))}
  }.getOrNull()?.takeIf {it.second.size>=2}
  fun start(roster:Boolean,configureAll:Boolean=false,test:Boolean=false,full:Boolean=false,ranking:Boolean=false,savedOnly:Boolean=false) {
-  hide();app.battleOverlay.hide();rankingMode=ranking&&full
+  hide();app.battleOverlay.hide();rankingMode=ranking&&full;fullAutoRetry=0
   // A run checkpoint belongs to one mode; switching mode restarts navigation but keeps every profile.
   if(full&&!savedOnly&&fullStore.state()?.let {it.optBoolean("ranking")!=rankingMode}==true)fullStore.resetRun()
-  fullMode=full;fullProcessed.clear();fullTarget=null;fullSide=false;fullCentered.clear();fullRepairPass=false;fullEnemySwept=false;lastFullViewport=emptyList();stableFullViewport=0;fullCancel=java.util.concurrent.atomic.AtomicBoolean(false);if(full)fullStore.prune();testMode=test && eu.komars.forgescanner.BuildConfig.DEBUG && context.packageName.endsWith(".autotest");listMode=roster;preparingAll=configureAll;rosterConfigured=false;proposals.clear()
+  fullMode=full;fullProcessed.clear();fullTarget=null;fullSide=false;fullCentered.clear();fullRepairPass=false;fullEnemySwept=false;lastFullViewport=emptyList();stableFullViewport=0;fullCancel=java.util.concurrent.atomic.AtomicBoolean(false);if(full)fullStore.prune();testMode=test;listMode=roster;preparingAll=configureAll;rosterConfigured=false;proposals.clear()
   if(!app.mobile.paired) {Toast.makeText(context,"Połącz aplikację z Discordem w menu głównym.",Toast.LENGTH_LONG).show();return}
   if(rankingMode)testMode=false
   if(roster && !testMode && WarPreparationModel.day()==null) {Toast.makeText(context,"Lista dostępna od niedzieli 01:00 do poniedziałku 01:00.",Toast.LENGTH_LONG).show();return}
   active=true;generation++;width=0;height=0;ours.clear();enemies.clear()
-  chrome=WarOverlayChrome(context,::stop,{manualListBoundary=true;say("Zatrzymuję przewijanie po bieżącym odczycie…")},if(rankingMode)"Ranking klanu" else if(fullMode)"Pełne profile klanów" else "Przygotowanie wojenne") {touching ->
+  chrome=WarOverlayChrome(context,::stop,{manualListBoundary=true;say("Zatrzymuję przewijanie po bieżącym odczycie…")},if(rankingMode)"Odczyt rankingu klanu" else if(fullMode)"Odczyt listy wojennej" else "Przygotowanie wojenne") {touching ->
    app.battleOverlay.batchInteraction(touching)
    if(touching){protectedBeforeInteraction=shield.isShowing;shield.hide()}
    else if(active&&protectedBeforeInteraction)panelBounds()?.let {shield.show(it)}
@@ -733,6 +735,7 @@ class WarPreparationOverlay(private val context:Context) {
   retryStep={warFlags()}
   if(rect("ourFlag")!=null && rect("enemyFlag")!=null) {
    if(rankingMode)clanRoster(false)
+   else if(fullMode&&enemyDamage>0)clanRoster(fullSide)
    else if(testMode){enemyDamage=ownDamage;enemyHealth=ownHealth;clanRoster(if(fullMode)fullSide else false)}
    else if(WarPreparationModel.day()==null)completePreparation()else rivalInfo()
    return
@@ -1193,8 +1196,27 @@ class WarPreparationOverlay(private val context:Context) {
   })
   recovery?.addView(ScannerAppearance.overlayAction(context,"Przelicz zapisane profile") {active=true;generation++;fullCancel=java.util.concurrent.atomic.AtomicBoolean(false);computeFullWar()})
  }
+ /**
+  * Keep reading until every profile is complete: missing members are revisited automatically
+  * (bounded rounds) before any simulation. Power is only the last resort for what still fails.
+  */
+ private fun retryMissingAutomatically(ownOnly:Boolean):Boolean {
+  if(fullAutoRetry>=maxAutoRetry||CaptureConnection.state!=CaptureState.READY)return false
+  val missing=fullEntries().filter {(enemy,_,entry)->(!ownOnly||!enemy)&&entry?.optBoolean("complete")!=true}
+  if(missing.isEmpty())return false
+  fullAutoRetry++
+  fullStore.log("auto-retry",JSONObject().put("round",fullAutoRetry).put("missing",JSONArray(missing.map {it.second.name})))
+  say("Doczytuję brakujące profile: ${missing.size}. Próba $fullAutoRetry/$maxAutoRetry.")
+  val first=missing.firstOrNull {!it.first}?:missing.first()
+  fullSide=first.first;fullTarget=first.second.name
+  missing.forEach {(enemy,member,_)->fullProcessed.remove(fullId(enemy,member))}
+  saveFull("member",true)
+  later(300) {resumeFullWork()}
+  return true
+ }
  private fun computeFullWar() {
   retryStep={computeFullWar()};repairKey=null;setRosterControls(0);clearRecoveryActions()
+  if(retryMissingAutomatically(ownOnly=false))return
   val own=ours.values;val rival=enemies.values
   val complete=fullEntries().count {it.third?.optBoolean("complete")==true}
   if(fullEntries().none { !it.first&&it.third?.optBoolean("complete")==true }||fullEntries().none {it.first&&it.third?.optBoolean("complete")==true}) {
@@ -1213,6 +1235,7 @@ class WarPreparationOverlay(private val context:Context) {
  private fun computeRanking(members:List<WarMember>) {
   val clan=ownClan?:run {fail("Brak nazwy naszego klanu.");return}
   retryStep={computeRanking(members)};repairKey=null;setRosterControls(0);clearRecoveryActions()
+  if(retryMissingAutomatically(ownOnly=true))return
   data.edit().putString("rankingRoster",JSONObject().put("clan",clan).put("members",JSONArray().apply {members.forEach {put(JSONObject().put("name",it.name).put("power",it.power))}}).toString()).apply()
   val profiles=members.map {fullStore.entry(false,clan,it)?.optJSONObject("profile")}
   val complete=profiles.count {it!=null}
@@ -1267,6 +1290,6 @@ class WarPreparationOverlay(private val context:Context) {
   }
   logRosterState("upload");say("Wysyłam: $ownClan ${ours.resolvedCount}/$ourExpected → $enemyClan ${enemies.resolvedCount}/$enemyExpected. Nie zamykaj aplikacji.")
   val g=generation
-  app.mobile.sendWar(body) {result ->if(active && g==generation)result.fold({if(!testMode)data.edit().putString("uploadedDay",day).apply();status?.text=if(testMode)"Lista TEST zapisana. Otwórz /report war-test na Discordzie. Możesz powtórzyć test." else "Lista zapisana na Discordzie. Zablokowano ponowny zapis w tej wojnie.";warning?.visibility=View.GONE;active=false;if(fullMode)addFullRecovery()},{fail(it.message?:"Nie udało się wysłać listy.");if(fullMode)addFullRecovery()})}
+  app.mobile.sendWar(body) {result ->if(active && g==generation)result.fold({if(!testMode)data.edit().putString("uploadedDay",day).apply();status?.text=if(testMode)"Lista zapisana (równe bonusy, poza niedzielą). Otwórz /report war-list na Discordzie. Odczyt można powtórzyć." else "Lista zapisana na Discordzie. Zablokowano ponowny zapis w tej wojnie.";warning?.visibility=View.GONE;active=false;if(fullMode)addFullRecovery()},{fail(it.message?:"Nie udało się wysłać listy.");if(fullMode)addFullRecovery()})}
  }
 }

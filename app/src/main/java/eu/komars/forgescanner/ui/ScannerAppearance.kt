@@ -65,6 +65,16 @@ object ScannerAppearance {
         background=android.graphics.drawable.InsetDrawable(rounded(context,if(primary) ACCENT else CONTROL,10,if(primary) ACCENT else BORDER),0,dp(context,4),0,dp(context,4))
         setOnClickListener {action()}
     }
+    /**
+     * Horizontal row of overlay buttons: no baseline alignment (a two-line label must not push its
+     * neighbour down), equal heights and a fixed gap. Add children with [rowItem].
+     */
+    fun actionRow(context:Context)=android.widget.LinearLayout(context).apply {
+        orientation=android.widget.LinearLayout.HORIZONTAL;isBaselineAligned=false;gravity=Gravity.CENTER_VERTICAL
+    }
+    fun rowItem(context:Context,height:Int=52)=android.widget.LinearLayout.LayoutParams(0,dp(context,height),1f).apply {
+        setMargins(dp(context,3),0,dp(context,3),0)
+    }
     fun button(context:Context,label:String,primary:Boolean=false,quiet:Boolean=false,action:()->Unit)=Button(context).apply {
         text=label;contentDescription=label;textSize=if(quiet) 13f else 15f;isAllCaps=false;gravity=Gravity.CENTER
         minHeight=dp(context,48);minimumHeight=dp(context,48);setPadding(dp(context,12),dp(context,12),dp(context,12),dp(context,12))
