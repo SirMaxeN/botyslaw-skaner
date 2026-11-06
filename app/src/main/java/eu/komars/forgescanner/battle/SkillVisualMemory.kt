@@ -7,7 +7,11 @@ import org.json.JSONObject
 
 /** Learns user-confirmed artwork. Only hashes/colors are retained, never screenshots. */
 class SkillVisualMemory(private val context:Context) {
-    private val prefs=context.getSharedPreferences("skill_visual_memory_v1",0)
+    private val prefs=context.getSharedPreferences("skill_visual_memory_v1",0).also { p ->
+        // One-time cleanup: artwork learned before aligned icon boxes (no "box" marker) is unreliable.
+        val stale=p.all.filter { (key,value) -> !key.startsWith("name_") && runCatching { !JSONObject(value as String).getJSONObject("visual").has("box") }.getOrDefault(true) }.keys
+        if(stale.isNotEmpty()) p.edit().apply { stale.forEach { remove(it) } }.apply()
+    }
     private val wikiTemplates by lazy {
         BattleSkill.entries.mapNotNull { skill ->
             val file=when(skill) { BattleSkill.SHURIKENS -> "Shuriken";BattleSkill.ARROW_RAIN -> "RainOfArrows";else -> skill.name.lowercase().split('_').joinToString("") { it.replaceFirstChar(Char::uppercaseChar) } }
@@ -45,7 +49,7 @@ class SkillVisualMemory(private val context:Context) {
         val thumb=Bitmap.createScaledBitmap(crop,16,16,true);val hex=StringBuilder(16*16*6)
         for(y in 0 until 16)for(x in 0 until 16)hex.append(String.format(java.util.Locale.ROOT,"%06x",thumb.getPixel(x,y) and 0xffffff))
         if(thumb!==crop)thumb.recycle();crop.recycle()
-        return JSONObject().put("hash",bits.toString()).put("r",red/64).put("g",green/64).put("b",blue/64).put("thumb",hex.toString())
+        return JSONObject().put("hash",bits.toString()).put("r",red/64).put("g",green/64).put("b",blue/64).put("thumb",hex.toString()).put("box",2)
     }
     private fun score(a:JSONObject,b:JSONObject):Int {
         val bits=java.lang.Long.bitCount(a.getString("hash").toLong() xor b.getString("hash").toLong())

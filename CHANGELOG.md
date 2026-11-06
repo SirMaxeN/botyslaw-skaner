@@ -1,5 +1,14 @@
 # Change log
 
+## AUTO Test 78 (1.3.1-auto-test, unreleased)
+
+- The war/ranking panel never collapses to icons by itself: when it cannot sit beside a target it is hidden for that action and shown again at the next step.
+- Compact icon bar width counts every visible icon (expand, pause, boundary, close), so the close X is no longer clipped.
+- Upside-down nicknames: "euepz" on the profile matches roster name "zdana" (the only missing profile, 5 failed attempts).
+- Clan tag read without its opening bracket ("PolskaMOC_PL_J") is shown as "PolskaMOC[PL]".
+- Ranking and war-list uploads log their result (ok/error) to the private event log.
+- Skill icon memory: entries learned before aligned icon boxes are removed once; unidentified icon crops are kept (last 40, debug only) to build a reliable matcher from real data.
+
 ## AUTO Test 77 (1.3.1-auto-test, unreleased)
 
 - Pause / resume for long clan scans: pause cancels taps, keeps screen sharing and saved progress, and lets the user leave the game; resume re-detects the screen and continues from the checkpoint.

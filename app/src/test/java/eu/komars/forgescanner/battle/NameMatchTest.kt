@@ -8,8 +8,11 @@ class NameMatchTest {
   assertTrue(NameMatch.same("Debro","Debr0"))
   assertTrue(NameMatch.same("HuzarowskyPI","HuzarowskyPL"))
  }
+ @Test fun upsideDownNicknameMatchesItsRosterSpelling() {
+  assertTrue(NameMatch.same("euepz","zdana"))
+  assertFalse(NameMatch.same("euepz","Leadbiz"))
+ }
  @Test fun differentOrShortNamesAreStillRejected() {
-  assertFalse(NameMatch.same("euepz","zdana"))
   assertFalse(NameMatch.same("JKH","JKG"))
   assertFalse(NameMatch.same("Leadbiz","Tortellini"))
   assertFalse(NameMatch.same("",""))

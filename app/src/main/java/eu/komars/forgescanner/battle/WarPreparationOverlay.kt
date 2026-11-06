@@ -121,6 +121,7 @@ class WarPreparationOverlay(private val context:Context) {
  private fun say(text:String) {status?.text=text}
  private fun step(at:Int,title:String) {
   if(fullMode)fullStore.log("step",JSONObject().put("stage",at).put("title",title))
+  if(!paused)panel?.visibility=View.VISIBLE
   stage=at;val color=eu.komars.forgescanner.ui.ScannerAppearance.stepColor(at)
   stageLabel?.text=if(rankingMode)"▶ Ranking klanu: $title" else "▶ Krok ${at+1}/${maxOf(at+1,if(listMode) 8 else if(preparingAll) 7 else 6)}: $title";stageLabel?.setTextColor(color)
   (panel?.background as? android.graphics.drawable.GradientDrawable)?.setStroke(dp(2),color)
@@ -296,8 +297,10 @@ class WarPreparationOverlay(private val context:Context) {
   val occupied=Rect(previous.x,previous.y,previous.x+maxOf(box.width,box.measuredWidth),previous.y+maxOf(box.height,box.measuredHeight))
   val y=if(!Rect.intersects(occupied,r))previous.y else eu.komars.forgescanner.model.OverlayPlacement.find(height,r.top,r.bottom,maxOf(box.height,box.measuredHeight),0,dp(20),32)
   if(y==null&&chrome?.compact==false) {
-   chrome?.setCompact(true)
-   later(180){away(r,attempt,next)}
+   // No room beside the target: hide the panel for this action only; it never collapses to icons by itself.
+   // The next placement (or step change) shows it again.
+   box.visibility=View.INVISIBLE
+   later(120){next()}
    return
   }
   if(y==null){fail("Brak miejsca na STOP poza polem.");return}
@@ -1277,7 +1280,9 @@ class WarPreparationOverlay(private val context:Context) {
    .put("profiles",JSONArray().apply {profiles.forEach {put(it?:JSONObject.NULL)}}).put("simulation",simulation)
   say("Wysyłam ranking: ${simulation.optInt("complete")}/${members.size} kompletnych profili.")
   val g=generation
-  app.mobile.sendClanRanking(body) {result ->if(active&&g==generation)result.fold({status?.text="Ranking zapisany. Otwórz /report clan-ranking na Discordzie.";warning?.visibility=View.GONE;active=false},{fail(it.message?:"Nie udało się wysłać rankingu.")})}
+  app.mobile.sendClanRanking(body) {result ->
+   fullStore.log("upload",JSONObject().put("kind","ranking").put("members",members.size).put("ok",result.isSuccess).put("error",result.exceptionOrNull()?.message?:JSONObject.NULL))
+   if(active&&g==generation)result.fold({status?.text="Ranking zapisany. Otwórz /report clan-ranking na Discordzie.";warning?.visibility=View.GONE;active=false},{fail(it.message?:"Nie udało się wysłać rankingu.")})}
  }
  private fun logRosterState(phase:String) {
   if(eu.komars.forgescanner.BuildConfig.DEBUG)runCatching {
@@ -1312,6 +1317,8 @@ class WarPreparationOverlay(private val context:Context) {
   }
   logRosterState("upload");say("Wysyłam: $ownClan ${ours.resolvedCount}/$ourExpected → $enemyClan ${enemies.resolvedCount}/$enemyExpected. Nie zamykaj aplikacji.")
   val g=generation
-  app.mobile.sendWar(body) {result ->if(active && g==generation)result.fold({if(!testMode)data.edit().putString("uploadedDay",day).apply();status?.text=if(testMode)"Lista zapisana (równe bonusy, poza niedzielą). Otwórz /report war-list na Discordzie. Odczyt można powtórzyć." else "Lista zapisana na Discordzie. Zablokowano ponowny zapis w tej wojnie.";warning?.visibility=View.GONE;active=false;if(fullMode)addFullRecovery()},{fail(it.message?:"Nie udało się wysłać listy.");if(fullMode)addFullRecovery()})}
+  app.mobile.sendWar(body) {result ->
+   if(fullMode)fullStore.log("upload",JSONObject().put("kind",if(testMode)"war-preview" else "war").put("ok",result.isSuccess).put("error",result.exceptionOrNull()?.message?:JSONObject.NULL))
+   if(active && g==generation)result.fold({if(!testMode)data.edit().putString("uploadedDay",day).apply();status?.text=if(testMode)"Lista zapisana (równe bonusy, poza niedzielą). Otwórz /report war-list na Discordzie. Odczyt można powtórzyć." else "Lista zapisana na Discordzie. Zablokowano ponowny zapis w tej wojnie.";warning?.visibility=View.GONE;active=false;if(fullMode)addFullRecovery()},{fail(it.message?:"Nie udało się wysłać listy.");if(fullMode)addFullRecovery()})}
  }
 }

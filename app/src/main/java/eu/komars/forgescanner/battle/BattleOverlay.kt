@@ -825,6 +825,13 @@ class BattleOverlay(private val context: Context) {
             val signature=visualMemory.fingerprint(image,icon)
             val type=visualMemory.recognize(signature)?.name
                 ?:wiki?.takeIf {it.error<=42 && it.margin>=6}?.id
+            if(type==null&&eu.komars.forgescanner.BuildConfig.DEBUG)runCatching {
+                val dir=java.io.File(context.cacheDir,"skill-icons").apply {mkdirs()}
+                dir.listFiles()?.sortedBy {it.lastModified()}?.dropLast(39)?.forEach {it.delete()}
+                val crop=Bitmap.createBitmap(image,icon.left,icon.top,icon.width(),icon.height())
+                java.io.File(dir,"icon-${System.currentTimeMillis()}-$at.png").outputStream().use {crop.compress(Bitmap.CompressFormat.PNG,100,it)}
+                if(crop!==image)crop.recycle()
+            }
             if(type==null){logQuick(at,JSONObject().put("result","icon").put("error",wiki?.error?:-1).put("margin",wiki?.margin?:-1).put("learned",visualMemory.nearest(signature)));continue}
             val label=Rect(q.left-q.width/10,q.bottom-q.height/6,q.right+q.width/10,q.bottom+q.height/2)
             if(!bounds.contains(label)){logQuick(at,JSONObject().put("result","label-bounds"));continue}

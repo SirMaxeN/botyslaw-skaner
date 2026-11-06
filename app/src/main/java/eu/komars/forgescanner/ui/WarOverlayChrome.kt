@@ -70,7 +70,8 @@ internal class WarOverlayChrome(private val context:Context,private val stop:()-
  private fun clamp(lp:WindowManager.LayoutParams) {lp.x=lp.x.coerceIn(0,(screen.width()-lp.width).coerceAtLeast(0));lp.y=lp.y.coerceIn(dp(24),(screen.height()-root.measuredHeight-dp(28)).coerceAtLeast(dp(24)))}
  private fun resize() {
   val lp=root.layoutParams as? WindowManager.LayoutParams?:return
-  val icons=if(boundaryIcon.visibility==View.VISIBLE)3 else 2
+  // Every visible icon (expand, pause, list boundary, close) gets a full cell, so none is clipped.
+  val icons=(1 until compactRow.childCount).count {compactRow.getChildAt(it).visibility==View.VISIBLE}
   lp.width=if(compact)dp(48)+ScannerIconBar.cell(context,3)*icons else minOf(dp(250),screen.width()-dp(16))
   root.measure(View.MeasureSpec.makeMeasureSpec(lp.width,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(0,View.MeasureSpec.UNSPECIFIED));clamp(lp);wm.updateViewLayout(root,lp)
  }

@@ -32,6 +32,8 @@ class WarRosterProofTest {
   assertEquals("PolskaMoc[PL]",WarRosterProof.displayName("PolskaMoc(_PL_J"))
   assertEquals("PolskaMoc[PL]",WarRosterProof.displayName("PolskaMoc[_PL_]"))
   assertEquals("PolskaMoc[PL]",WarRosterProof.displayName("PolskaMoc (PL)"))
+  assertEquals("PolskaMOC[PL]",WarRosterProof.displayName("PolskaMOC_PL_J"))
+  assertEquals("Polska_Moc",WarRosterProof.displayName("Polska_Moc"))
   assertEquals("Klan bez tagu",WarRosterProof.displayName("Klan bez tagu"))
  }
 }
