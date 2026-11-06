@@ -98,7 +98,7 @@ class WarPreparationOverlay(private val context:Context) {
  private fun step(at:Int,title:String) {
   if(fullMode)fullStore.log("step",JSONObject().put("stage",at).put("title",title))
   stage=at;val color=eu.komars.forgescanner.ui.ScannerAppearance.stepColor(at)
-  stageLabel?.text="▶ Krok ${at+1}/${if(listMode) 8 else if(preparingAll) 7 else 6}: $title";stageLabel?.setTextColor(color)
+  stageLabel?.text=if(rankingMode)"▶ Ranking klanu: $title" else "▶ Krok ${at+1}/${maxOf(at+1,if(listMode) 8 else if(preparingAll) 7 else 6)}: $title";stageLabel?.setTextColor(color)
   (panel?.background as? android.graphics.drawable.GradientDrawable)?.setStroke(dp(2),color)
  }
  private fun clearRecoveryActions() {recovery?.removeAllViews()}
@@ -128,7 +128,7 @@ class WarPreparationOverlay(private val context:Context) {
   clearRecoveryActions();active=true;generation++;warning?.visibility=View.VISIBLE
   if(fullComputing){next();return}
   val g=generation
-  GestureConnection.requestArm(width,height) {result ->if(active&&g==generation){session=result.getOrNull();if(session==null)fail("Włącz dostępność i ponów.")else next()}}
+  GestureConnection.requestArm(width,height) {result ->if(active&&g==generation){session=result.getOrNull();if(session==null)fail(result.exceptionOrNull()?.message?:"Włącz dostępność i ponów.")else next()}}
  }
  private fun saveRegion(key:String,r:Rect) {prefs.edit().putBoolean("war_verified_$key",false).putString("war_$key",JSONObject().put("width",width).put("height",height).put("l",r.left).put("t",r.top).put("r",r.right).put("b",r.bottom).toString()).apply()}
  private fun manualResearch() {
@@ -198,7 +198,7 @@ class WarPreparationOverlay(private val context:Context) {
   if(rankingMode)testMode=false
   if(roster && !testMode && WarPreparationModel.day()==null) {Toast.makeText(context,"Lista dostępna od niedzieli 01:00 do poniedziałku 01:00.",Toast.LENGTH_LONG).show();return}
   active=true;generation++;width=0;height=0;ours.clear();enemies.clear()
-  chrome=WarOverlayChrome(context,::stop,{manualListBoundary=true;say("Zatrzymuję przewijanie po bieżącym odczycie…")}) {touching ->
+  chrome=WarOverlayChrome(context,::stop,{manualListBoundary=true;say("Zatrzymuję przewijanie po bieżącym odczycie…")},if(rankingMode)"Ranking klanu" else if(fullMode)"Pełne profile klanów" else "Przygotowanie wojenne") {touching ->
    app.battleOverlay.batchInteraction(touching)
    if(touching){protectedBeforeInteraction=shield.isShowing;shield.hide()}
    else if(active&&protectedBeforeInteraction)panelBounds()?.let {shield.show(it)}
@@ -1063,7 +1063,7 @@ class WarPreparationOverlay(private val context:Context) {
   cleanFrame {image ->
    val seen=scene(image);val profile=memberDetector.observe(image).profile;val close=if(profile)eu.komars.forgescanner.vision.CloseButtonDetector().detect(image)else null;image.recycle()
    if(saved.optInt("width")!=width||saved.optInt("height")!=height){fail("Zmieniono rozmiar obrazu. Profile zapisane; popraw pola przed wznowieniem.");return@cleanFrame}
-   GestureConnection.requestArm(width,height) {armed->if(!active||g!=generation)return@requestArm;session=armed.getOrNull();if(session==null){fail("Włącz dostępność i ponów wznowienie.");return@requestArm}
+   GestureConnection.requestArm(width,height) {armed->if(!active||g!=generation)return@requestArm;session=armed.getOrNull();if(session==null){fail(armed.exceptionOrNull()?.message?:"Włącz dostępność i ponów wznowienie.");return@requestArm}
     if("roster" in seen.states) {
      val r=rect("roster")?:run {fail("Brak pola listy. Zapisany postęp pozostaje zachowany.");return@requestArm}
      val header=RosterHeaderRegion.above(width,height,eu.komars.forgescanner.model.PixelRegion(r.left,r.top,r.right,r.bottom))?:run {fail("Nie potwierdzono nagłówka listy.");return@requestArm}
@@ -1151,7 +1151,7 @@ class WarPreparationOverlay(private val context:Context) {
        .put("skills_from_profile",quickSkills).put("reason",accepted.exceptionOrNull()?.message?:""))
       val reason=result.exceptionOrNull()?.message.orEmpty()
       if(CaptureConnection.state!=CaptureState.READY||!GestureConnection.isConnected||reason.contains("dotknię")||reason.contains("Gest został przerwany")){fail("Skan wstrzymany. Zapisane profile zachowane. $reason");return@scanBatch}
-      GestureConnection.requestArm(width,height) {armed ->if(active&&g==generation){session=armed.getOrNull();if(session==null)fail("Ponownie włącz dostępność.")else {saveFull("closing-profile");closeFullProfile(knownProfile=result.isSuccess) {fullProcessed+=fullId(enemy,member);fullTarget=null;saveFull("roster");later(180){visit(position+1)}}}}}
+      GestureConnection.requestArm(width,height) {armed ->if(active&&g==generation){session=armed.getOrNull();if(session==null)fail(armed.exceptionOrNull()?.message?:"Ponownie włącz dostępność.")else {saveFull("closing-profile");closeFullProfile(knownProfile=result.isSuccess) {fullProcessed+=fullId(enemy,member);fullTarget=null;saveFull("roster");later(180){visit(position+1)}}}}}
      }
     }
    }}

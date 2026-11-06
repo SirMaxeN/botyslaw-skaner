@@ -1,5 +1,11 @@
 # Change log
 
+## AUTO Test 72 (1.3.1-auto-test, unreleased)
+
+- Ignore transient SystemUI FrameLayout windows (heads-up notifications, status-bar chips) in the foreground check; they stopped scans every few minutes although the game kept focus. SystemUI dialogs, permission screens and other apps still stop the scan.
+- Show the real gesture-arming error instead of a generic "turn accessibility back on" message.
+- Overlay buttons have their own vertical spacing; ranking/full-profile panels show their own title and no "step 7/6" counter.
+
 ## AUTO Test 71 (1.3.1-auto-test, unreleased)
 
 - Calculate Mira's critical-damage reduction from its per-step coefficient and the scanned skill-cooldown bonus (whole -4% steps, 70% pool cap). The Mira window never shows a current bonus.

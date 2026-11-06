@@ -24,6 +24,13 @@ class ForegroundWindowClassifierTest {
         }
     }
 
+    @Test fun transientSystemUiPopupDoesNotStopTheScanButSystemDialogsDo() {
+        assertEquals(ForegroundWindowClassifier.Decision.IGNORE, classify("com.android.systemui", "android.widget.FrameLayout"))
+        assertEquals(ForegroundWindowClassifier.Decision.OTHER_APP, classify("com.android.systemui", "com.android.systemui.statusbar.phone.SystemUIDialog"))
+        assertEquals(ForegroundWindowClassifier.Decision.OTHER_APP, classify("com.android.systemui", "com.android.systemui.mediaprojection.permission.MediaProjectionPermissionActivity"))
+        assertEquals(ForegroundWindowClassifier.Decision.OTHER_APP, classify("com.samsung.android.app.smartcapture", "android.widget.FrameLayout"))
+    }
+
     @Test fun knownGameWindowConfirmsForegroundRegardlessOfItsViewClass() {
         assertEquals(ForegroundWindowClassifier.Decision.GAME, classify(game, "com.unity3d.player.UnityPlayerActivity"))
         assertEquals(ForegroundWindowClassifier.Decision.GAME, classify(game, null))
@@ -46,15 +53,15 @@ class ForegroundWindowClassifierTest {
         }
     }
 
-    @Test fun genericFrameLayoutExceptionIsExclusiveToSamsungLauncher() {
+    @Test fun genericFrameLayoutExceptionIsLimitedToSamsungLauncherAndSystemUiPopups() {
         for (owner in listOf("com.android.launcher3", "com.google.android.apps.nexuslauncher",
-                "com.android.systemui", "com.android.settings", "com.other.app")) {
+                "com.android.settings", "com.other.app")) {
             assertEquals(ForegroundWindowClassifier.Decision.OTHER_APP, classify(owner, "android.widget.FrameLayout"))
         }
     }
 
     @Test fun everyOtherOwnedWindowStillRevokesTheRun() {
-        for (owner in listOf("com.android.systemui", "com.android.settings", "com.other.game")) {
+        for (owner in listOf("com.android.settings", "com.other.game")) {
             assertEquals(ForegroundWindowClassifier.Decision.OTHER_APP, classify(owner, "android.widget.FrameLayout"))
         }
     }

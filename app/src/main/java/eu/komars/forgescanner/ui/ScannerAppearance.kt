@@ -62,7 +62,7 @@ object ScannerAppearance {
         setPadding(dp(context,10),dp(context,6),dp(context,10),dp(context,6))
         stateListAnimator=null
         setTextColor(if(primary) ON_ACCENT else FOREGROUND)
-        background=rounded(context,if(primary) ACCENT else CONTROL,10,if(primary) ACCENT else BORDER)
+        background=android.graphics.drawable.InsetDrawable(rounded(context,if(primary) ACCENT else CONTROL,10,if(primary) ACCENT else BORDER),0,dp(context,4),0,dp(context,4))
         setOnClickListener {action()}
     }
     fun button(context:Context,label:String,primary:Boolean=false,quiet:Boolean=false,action:()->Unit)=Button(context).apply {

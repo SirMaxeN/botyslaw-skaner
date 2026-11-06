@@ -8,7 +8,7 @@ import android.widget.*
 
 /** War panel uses the same square icon controls as resources and the battle simulator. */
 internal class WarOverlayChrome(private val context:Context,private val stop:()->Unit,private val boundary:()->Unit,
- private val interaction:(Boolean)->Unit) {
+ private val title:String="Przygotowanie wojenne",private val interaction:(Boolean)->Unit) {
  private val wm=context.getSystemService(WindowManager::class.java)
  private fun dp(n:Int)=ScannerAppearance.dp(context,n)
  private val screen get()=if(Build.VERSION.SDK_INT>=30)wm.maximumWindowMetrics.bounds else android.graphics.Rect(0,0,context.resources.displayMetrics.widthPixels,context.resources.displayMetrics.heightPixels)
@@ -37,7 +37,7 @@ internal class WarOverlayChrome(private val context:Context,private val stop:()-
  private fun handle()=TextView(context).apply {text="⠿";gravity=Gravity.CENTER;textSize=22f;setTextColor(ScannerAppearance.ACCENT);contentDescription="Przesuń nakładkę";setOnTouchListener(drag)}
  init {
   fullHeader.addView(handle(),LinearLayout.LayoutParams(dp(28),dp(44)))
-  fullHeader.addView(TextView(context).apply {text="Przygotowanie wojenne";setTextColor(ScannerAppearance.ACCENT);textSize=13f;setOnTouchListener(drag)},LinearLayout.LayoutParams(0,dp(44),1f))
+  fullHeader.addView(TextView(context).apply {text=title;setTextColor(ScannerAppearance.ACCENT);textSize=13f;setOnTouchListener(drag)},LinearLayout.LayoutParams(0,dp(44),1f))
   fullHeader.addView(ScannerIconBar.button(context,"▁","Zwiń do ikon") {setCompact(true)},LinearLayout.LayoutParams(dp(44),dp(44)))
   compactRow.addView(handle(),LinearLayout.LayoutParams(dp(24),ScannerIconBar.cell(context,3)))
   for(button in listOf(ScannerIconBar.button(context,"⛶","Rozwiń nakładkę") {setCompact(false)},boundaryIcon,ScannerIconBar.button(context,"✕","Zakończ odczyt ekranu",stop)))compactRow.addView(button,LinearLayout.LayoutParams(ScannerIconBar.cell(context,3),ScannerIconBar.cell(context,3)))

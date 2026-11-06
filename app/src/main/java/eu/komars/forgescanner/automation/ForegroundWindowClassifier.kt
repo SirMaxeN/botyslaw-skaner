@@ -10,6 +10,10 @@ object ForegroundWindowClassifier {
         // Samsung emits this transient generic launcher window above Unity while
         // the game still owns focus. Real launcher/recents activities still revoke.
         if (owner == "com.sec.android.app.launcher" && windowClass == "android.widget.FrameLayout") return Decision.IGNORE
+        // Heads-up notifications, status-bar chips and toasts are generic SystemUI FrameLayouts drawn
+        // above the game without taking it out of the foreground (observed every few minutes on
+        // Samsung during scans). The shade, dialogs and permission screens use their own classes.
+        if (owner == "com.android.systemui" && windowClass == "android.widget.FrameLayout") return Decision.IGNORE
         if (owner == keyboardPackage && windowClass in setOf("android.inputmethodservice.SoftInputWindow", "android.inputmethodservice.InputMethodService", "android.widget.FrameLayout", "android.widget.LinearLayout", "android.inputmethodservice.KeyboardWindow")) return Decision.IGNORE
         if (owner == ownPackage) {
             val activity = windowClass.orEmpty().substringAfterLast('.')
