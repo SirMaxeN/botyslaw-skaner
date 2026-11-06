@@ -10,4 +10,10 @@ class SkillReadEvidenceTest {
   assertEquals(BattleSkill.entries.last(),e.kind);assertEquals(12,e.level)
   e.add(BattleSkill.entries.first(),null);assertNull(e.kind)
  }
+ @Test fun gameFontLevelWinsOnlyWithoutContradictingOcr() {
+  val missing=SkillReadEvidence();missing.add(BattleSkill.LIGHTNING,null);missing.addFont(18);assertEquals(18,missing.level)
+  val agreeing=SkillReadEvidence();agreeing.add(null,18);agreeing.add(null,16);agreeing.addFont(18);assertEquals(18,agreeing.level)
+  val contradicting=SkillReadEvidence();contradictingSetup(contradicting);assertEquals(null,contradicting.level)
+ }
+ private fun contradictingSetup(e:SkillReadEvidence){e.add(null,16);e.add(null,13);e.addFont(18)}
 }

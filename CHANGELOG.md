@@ -1,5 +1,13 @@
 # Change log
 
+## AUTO Test 77 (1.3.1-auto-test, unreleased)
+
+- Pause / resume for long clan scans: pause cancels taps, keeps screen sharing and saved progress, and lets the user leave the game; resume re-detects the screen and continues from the checkpoint.
+- Skill detail window: the "Poz. N" label on the icon is read with the game font and decides the level when OCR has nothing or agrees (the 3× failed Błyskawica "Poz. 18" case). OCR-settled levels teach the font.
+- Resource counters: a value confirmed by the user teaches the font the digits of that counter's last crop (e.g. hammers).
+- Skill icon learning: the same freshly detected icon box is used for learning and for the one-image read; an icon that matches another skill's learned icon (Morale vs Higher Morale mislabel) is not stored and the conflicting entries are removed. Diagnostics show the nearest learned icons.
+- Fairy window: wait for the opening animation and tap once more before treating the fairy as missing (Ultralegion stop).
+
 ## AUTO Test 76 (1.3.1-auto-test, unreleased)
 
 - Game-font reader extended to resource counters (counter mode: rightmost digit run, leading resource icon skipped). Private fixtures: anvil hammer counter 9383 read correctly in 3/3 screenshots; "Poz." labels 25/27 correct, 0 wrong. Templates now cover digits 0–9.

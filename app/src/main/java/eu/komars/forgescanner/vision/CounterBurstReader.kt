@@ -78,6 +78,7 @@ class CounterBurstReader(
                     val r = Rect(rect); if (!r.intersect(0, 0, bitmap.width, bitmap.height) || r.width() < 8 || r.height() < 6) { fontVotes.getValue(target) += null; continue }
                     val pixels = IntArray(r.width() * r.height()); bitmap.getPixels(pixels, 0, r.width(), r.left, r.top, r.width(), r.height())
                     lastPixels[target] = Triple(r.width(), r.height(), pixels)
+                    font?.rememberCounterCrop(target.field.name, r.width(), r.height(), pixels)
                     fontVotes.getValue(target) += runCatching { font?.readCounter(r.width(), r.height(), pixels) }.getOrNull()
                 }
                 val verify = crops.keys.all { CounterOcrPassPolicy.canVerify(readings.getValue(it), it) }

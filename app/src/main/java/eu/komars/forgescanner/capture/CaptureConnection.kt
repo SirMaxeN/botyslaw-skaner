@@ -17,6 +17,8 @@ enum class CaptureState { STOPPED, STARTING, READY, ERROR }
  * Every callback is delivered on the main thread. No Activity or screenshot is retained.
  */
 object CaptureConnection {
+    /** Set while a long scan is paused by the user: leaving the game must not end screen sharing. */
+    @Volatile var holdWhileHidden = false
     private val mainHandler = Handler(Looper.getMainLooper())
     private val listeners = LinkedHashSet<CaptureStateListener>()
     private var service: FrameCaptureService? = null

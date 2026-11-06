@@ -8,7 +8,18 @@ import android.widget.*
 
 /** War panel uses the same square icon controls as resources and the battle simulator. */
 internal class WarOverlayChrome(private val context:Context,private val stop:()->Unit,private val boundary:()->Unit,
- private val title:String="Przygotowanie wojenne",private val interaction:(Boolean)->Unit) {
+ private val title:String="Przygotowanie wojenne",private val pause:((Boolean)->Unit)?=null,private val interaction:(Boolean)->Unit) {
+ private var paused=false
+ private val pauseButton=ScannerAppearance.overlayAction(context,"⏸ Pauza") {togglePause()}
+ private val pauseIcon=ScannerIconBar.button(context,"⏸","Pauza / wznów skan") {togglePause()}
+ private fun togglePause() {
+  paused=!paused
+  pauseButton.text=if(paused)"▶ Wznów" else "⏸ Pauza";pauseButton.contentDescription=pauseButton.text
+  (pauseIcon as? TextView)?.text=if(paused)"▶" else "⏸"
+  pause?.invoke(paused)
+ }
+ /** Resets the toggle when the scan itself ends or restarts. */
+ fun resetPause() {paused=false;pauseButton.text="⏸ Pauza";(pauseIcon as? TextView)?.text="⏸"}
  private val wm=context.getSystemService(WindowManager::class.java)
  private fun dp(n:Int)=ScannerAppearance.dp(context,n)
  private val screen get()=if(Build.VERSION.SDK_INT>=30)wm.maximumWindowMetrics.bounds else android.graphics.Rect(0,0,context.resources.displayMetrics.widthPixels,context.resources.displayMetrics.heightPixels)
@@ -42,7 +53,9 @@ internal class WarOverlayChrome(private val context:Context,private val stop:()-
   compactRow.addView(handle(),LinearLayout.LayoutParams(dp(24),ScannerIconBar.cell(context,3)))
   for(button in listOf(ScannerIconBar.button(context,"⛶","Rozwiń nakładkę") {setCompact(false)},boundaryIcon,ScannerIconBar.button(context,"✕","Zakończ odczyt ekranu",stop)))compactRow.addView(button,LinearLayout.LayoutParams(ScannerIconBar.cell(context,3),ScannerIconBar.cell(context,3)))
   root.addView(fullHeader);root.addView(compactRow);root.addView(scroll)
+  if(pause!=null)controls.addView(pauseButton,ScannerAppearance.rowItem(context))
   controls.addView(ScannerAppearance.overlayAction(context,"STOP / Zakończ",action=stop),ScannerAppearance.rowItem(context));root.addView(controls)
+  if(pause!=null)compactRow.addView(pauseIcon,1,LinearLayout.LayoutParams(ScannerIconBar.cell(context,3),ScannerIconBar.cell(context,3)))
   compactRow.visibility=View.GONE;boundaryIcon.visibility=View.GONE
  }
  fun addListControl(view:View){controls.addView(view,ScannerAppearance.rowItem(context))}

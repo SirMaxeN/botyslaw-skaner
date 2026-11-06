@@ -72,7 +72,7 @@ class FrameCaptureService : Service() {
         override fun onCapturedContentVisibilityChanged(isVisible: Boolean) {
             capturedContentVisible = isVisible
             if (isVisible) capturedContentWasVisible = true
-            else if (capturedContentWasVisible) { finishSession(null); return }
+            else if (capturedContentWasVisible && !CaptureConnection.holdWhileHidden) { finishSession(null); return }
             if (!isVisible) {
                 latestImage?.close()
                 latestImage = null

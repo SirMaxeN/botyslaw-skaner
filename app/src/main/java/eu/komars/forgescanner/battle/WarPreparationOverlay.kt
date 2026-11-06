@@ -44,6 +44,28 @@ class WarPreparationOverlay(private val context:Context) {
  private var fullRepairPass=false
  private var rankingMode=false
  private var fullAutoRetry=0
+ private var paused=false
+ /**
+  * Pause keeps screen sharing and every saved profile, cancels pending taps and lets the user leave the
+  * game. Resume re-detects the current screen and continues from the last checkpoint.
+  */
+ private fun setPaused(value:Boolean) {
+  if(!active)return
+  paused=value
+  if(value) {
+   generation++;fullCancel.set(true);GestureConnection.cancel();session=null;shield.hide();app.battleOverlay.cancelBatch()
+   CaptureConnection.holdWhileHidden=true;app.setScannerBusy("war",false);warning?.visibility=View.GONE
+   if(fullMode)saveFull("paused")
+   fullStore.log("pause",JSONObject().put("target",fullTarget?:JSONObject.NULL))
+   say("Pauza. Możesz korzystać z telefonu — udostępnianie ekranu trwa. Wróć do gry i naciśnij Wznów.")
+  } else {
+   CaptureConnection.holdWhileHidden=false;fullCancel=java.util.concurrent.atomic.AtomicBoolean(false)
+   generation++;app.setScannerBusy("war",true);warning?.visibility=View.VISIBLE
+   fullStore.log("resume-after-pause",JSONObject().put("target",fullTarget?:JSONObject.NULL))
+   say("Wznawiam od zapisanego miejsca. Nie dotykaj gry.")
+   if(fullMode&&fullStore.state()!=null)later(400){resumeFullWork()} else retryStep?.let {step->later(400){step()}}
+  }
+ }
  private val maxAutoRetry=3
  private var fullEnemySwept=false
  private var lastFullViewport:List<Pair<Int,Int>> = emptyList()
@@ -87,7 +109,7 @@ class WarPreparationOverlay(private val context:Context) {
  private var ownDamage=0.0;private var ownHealth=0.0;private var enemyDamage=0.0;private var enemyHealth=0.0
  private val shield=AutomationTouchShield(context) { fail("Skan przerwany po dotknięciu ekranu.") }
  private val listener:(CaptureState,String?)->Unit={state,_ -> if(!fullComputing&&state!=CaptureState.READY && state!=CaptureState.STARTING) hide() }
- fun hide() {fullProfileAnchor=null;if(fullMode&&active)fullStore.log("stop",JSONObject().put("target",fullTarget?:JSONObject.NULL));fullCancel.set(true);fullEditor.hide();app.battleOverlay.cancelBatch();fullComputing=false;fullResult=null;ownHeader=null;chrome=null;recovery=null;ownClan=null;enemyClan=null;ourExpected=0;enemyExpected=0;uploadRequestId=null;rosterReview.hide();ours.clear();enemies.clear();listControl=null;rosterMode=0;rosterDownGain=1f;manualListBoundary=false;screenFlow.reset();transitionEpoch++; generation++;active=false;selector?.close();selector=null;releaseSelectionFrame();GestureConnection.cancel();shield.hide();GestureConnection.beforeGesture=null;GestureConnection.afterGesture=null;GestureConnection.inputSettleMillis=null;panel?.let { runCatching {wm.removeViewImmediate(it)} };panel=null;CaptureConnection.removeStateListener(listener) }
+ fun hide() {paused=false;CaptureConnection.holdWhileHidden=false;fullProfileAnchor=null;if(fullMode&&active)fullStore.log("stop",JSONObject().put("target",fullTarget?:JSONObject.NULL));fullCancel.set(true);fullEditor.hide();app.battleOverlay.cancelBatch();fullComputing=false;fullResult=null;ownHeader=null;chrome=null;recovery=null;ownClan=null;enemyClan=null;ourExpected=0;enemyExpected=0;uploadRequestId=null;rosterReview.hide();ours.clear();enemies.clear();listControl=null;rosterMode=0;rosterDownGain=1f;manualListBoundary=false;screenFlow.reset();transitionEpoch++; generation++;active=false;selector?.close();selector=null;releaseSelectionFrame();GestureConnection.cancel();shield.hide();GestureConnection.beforeGesture=null;GestureConnection.afterGesture=null;GestureConnection.inputSettleMillis=null;panel?.let { runCatching {wm.removeViewImmediate(it)} };panel=null;CaptureConnection.removeStateListener(listener) }
  private fun releaseSelectionFrame() {
   val image=selectionFrame;selectionFrame=null
   // ScreenSelectionWindow.removeView is deferred; let its last queued draw finish.
@@ -200,7 +222,7 @@ class WarPreparationOverlay(private val context:Context) {
   if(rankingMode)testMode=false
   if(roster && !testMode && WarPreparationModel.day()==null) {Toast.makeText(context,"Lista dostępna od niedzieli 01:00 do poniedziałku 01:00.",Toast.LENGTH_LONG).show();return}
   active=true;generation++;width=0;height=0;ours.clear();enemies.clear()
-  chrome=WarOverlayChrome(context,::stop,{manualListBoundary=true;say("Zatrzymuję przewijanie po bieżącym odczycie…")},if(rankingMode)"Odczyt rankingu klanu" else if(fullMode)"Odczyt listy wojennej" else "Przygotowanie wojenne") {touching ->
+  chrome=WarOverlayChrome(context,::stop,{manualListBoundary=true;say("Zatrzymuję przewijanie po bieżącym odczycie…")},if(rankingMode)"Odczyt rankingu klanu" else if(fullMode)"Odczyt listy wojennej" else "Przygotowanie wojenne",if(full)::setPaused else null) {touching ->
    app.battleOverlay.batchInteraction(touching)
    if(touching){protectedBeforeInteraction=shield.isShowing;shield.hide()}
    else if(active&&protectedBeforeInteraction)panelBounds()?.let {shield.show(it)}

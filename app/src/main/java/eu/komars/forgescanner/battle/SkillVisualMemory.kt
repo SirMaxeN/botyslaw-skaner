@@ -64,8 +64,27 @@ class SkillVisualMemory(private val context:Context) {
         val clean=first.substringAfter(']',first).trim()
         return clean.takeUnless { it.contains('%') || Regex("^(poz|poziom|level|lv)[., :0-9]*$").matches(it) }.orEmpty()
     }
+    private fun learnedThumbs():List<Triple<String,BattleSkill,String>> = prefs.all.mapNotNull { (key,value) -> runCatching { val o=JSONObject(value as String);Triple(key,BattleSkill.valueOf(o.getString("type")),o.getJSONObject("visual").optString("thumb")) }.getOrNull() }
+    /** Diagnostics: the closest learned icons, e.g. "LIGHTNING 7.2 / WORM 61.0". */
+    fun nearest(signature:JSONObject):String {
+        val thumb=signature.optString("thumb")
+        return learnedThumbs().mapNotNull { (_,type,t) -> IconThumbnails.distance(thumb,t)?.let { type to it } }
+            .groupBy { it.first }.map { (type,list) -> type to list.minOf { it.second } }.sortedBy { it.second }.take(2)
+            .joinToString(" / ") { "${it.first} ${String.format(java.util.Locale.ROOT,"%.1f",it.second)}" }
+    }
     fun remember(type:BattleSkill,raw:String,visual:JSONObject?) {
-        if(visual!=null) prefs.edit().putString(type.name+"_"+visual.optString("hash"),JSONObject().put("type",type.name).put("visual",visual).toString()).apply()
+        val thumb=visual?.optString("thumb").orEmpty()
+        if(visual!=null&&thumb.isNotEmpty()) {
+            // An icon that looks like another skill's learned icon is a mislabel (e.g. Morale vs Higher Morale):
+            // store neither, and drop the conflicting entries so they cannot decide later reads.
+            val conflicts=learnedThumbs().filter { (_,other,t) -> other!=type && (IconThumbnails.distance(thumb,t)?:99.0)<12.0 }
+            if(conflicts.isNotEmpty()) { prefs.edit().apply { conflicts.forEach { remove(it.first) } }.apply(); return }
+            val same=learnedThumbs().filter { it.second==type }
+            prefs.edit().apply {
+                if(same.size>=8) remove(same.first().first)
+                putString(type.name+"_"+visual.optString("hash"),JSONObject().put("type",type.name).put("visual",visual).toString())
+            }.apply()
+        } else if(visual!=null) prefs.edit().putString(type.name+"_"+visual.optString("hash"),JSONObject().put("type",type.name).put("visual",visual).toString()).apply()
         val title=title(raw)
         if(title.length>=4 && !title.contains("nie otwarto")) prefs.edit().putString("name_"+title,type.name).apply()
     }

@@ -35,6 +35,16 @@ class GameDigitMemory(context:Context) {
   val kept=(learned()+fresh).groupBy {it.digit}.values.flatMap {it.takeLast(12)}
   prefs.edit().putString("samples",GameDigitFont.encode(kept)).apply()
  }
+ private val pendingCounters=java.util.concurrent.ConcurrentHashMap<String,Pair<Long,Triple<Int,Int,IntArray>>>()
+ /** Keeps the last crop of a counter for ten minutes, so a manual confirmation can teach its digits. */
+ fun rememberCounterCrop(key:String,w:Int,h:Int,pixels:IntArray) {pendingCounters[key]=System.currentTimeMillis() to Triple(w,h,pixels)}
+ /** The user confirmed this value for the counter: learn from its last crop if the font could not read it. */
+ fun confirmCounter(key:String,value:Long) {
+  val (at,crop)=pendingCounters.remove(key)?:return
+  if(System.currentTimeMillis()-at>10*60_000L)return
+  val (w,h,p)=crop
+  if(readCounter(w,h,p)!=value)learnCounter(w,h,p,value)
+ }
  /** Adds the digits of a confirmed label; keeps at most 12 learned samples per digit. */
  fun learn(image:Bitmap,value:Int) {
   store(runCatching {GameDigitFont.learn(image.width,image.height,pixels(image),value)}.getOrDefault(emptyList()))

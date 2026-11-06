@@ -822,9 +822,10 @@ class BattleOverlay(private val context: Context) {
             }
             val wiki=visualMemory.wikiMatch(image,icon)
             // Icons learned from this game's own confirmed detail windows first, then the wiki artwork.
-            val type=visualMemory.recognize(visualMemory.fingerprint(image,icon))?.name
+            val signature=visualMemory.fingerprint(image,icon)
+            val type=visualMemory.recognize(signature)?.name
                 ?:wiki?.takeIf {it.error<=42 && it.margin>=6}?.id
-            if(type==null){logQuick(at,JSONObject().put("result","icon").put("error",wiki?.error?:-1).put("margin",wiki?.margin?:-1));continue}
+            if(type==null){logQuick(at,JSONObject().put("result","icon").put("error",wiki?.error?:-1).put("margin",wiki?.margin?:-1).put("learned",visualMemory.nearest(signature)));continue}
             val label=Rect(q.left-q.width/10,q.bottom-q.height/6,q.right+q.width/10,q.bottom+q.height/2)
             if(!bounds.contains(label)){logQuick(at,JSONObject().put("result","label-bounds"));continue}
             val crop=Bitmap.createBitmap(image,label.left,label.top,label.width(),label.height())
@@ -1057,12 +1058,18 @@ class BattleOverlay(private val context: Context) {
             "Zakończ skan" to {if(active && token==generation)fail("Skan przerwany przy sprawdzaniu wróżki.")}
         ))
     }
-    private fun readFairyDetails() {
+    private fun readFairyDetails(retapped:Boolean=false) {
         tap("_fairy") {
             panel?.visibility=android.view.View.INVISIBLE
-            later(180) {frame {image ->
+            // The fairy window animates in; check again before deciding it did not open, then tap once more.
+            fun inspect(wait:Int) { later(if(wait==0)180 else 350) {frame {image ->
                 val observed=detector.observe(image)
-                if(observed.profile){image.recycle();confirmFairyPresence();return@frame}
+                if(observed.profile){
+                    image.recycle()
+                    if(wait<3){inspect(wait+1);return@frame}
+                    if(!retapped){readFairyDetails(true);return@frame}
+                    confirmFairyPresence();return@frame
+                }
                 val close=eu.komars.forgescanner.vision.CloseButtonDetector().detect(image)
                 val bounds=observed.panel
                 val w=minOf(360,image.width);val hh=image.height*w/image.width
@@ -1122,7 +1129,8 @@ class BattleOverlay(private val context: Context) {
                     }
                 }
                 detail(0)
-            }}
+            }} }
+            inspect(0)
         }
     }
     private fun completeWeaponRead() {
@@ -1151,7 +1159,9 @@ class BattleOverlay(private val context: Context) {
             val found=detector.observe(bitmap);val marked=if(fields.has("skill${at+1}")) region("skill${at+1}") else null
             val q=marked?.let { eu.komars.forgescanner.model.PixelRegion(it.left,it.top,it.right,it.bottom) } ?: found.regions["skill${at+1}"]
             val wikiKind=if(q!=null) visualMemory.fromWiki(bitmap,Rect(q.left,q.top,q.right,q.bottom)) else null
-            val visual=if(q!=null) visualMemory.fingerprint(bitmap,Rect(q.left,q.top,q.right,q.bottom)) else null
+            // Learn from the same freshly detected icon box that the one-image read uses.
+            val iconBox=(found.regions["skill${at+1}"]?:q)?.let {Rect(it.left,it.top,it.right,it.bottom)}
+            val visual=if(iconBox!=null&&Rect(0,0,bitmap.width,bitmap.height).contains(iconBox)) visualMemory.fingerprint(bitmap,iconBox) else null
             val empty=if(q!=null)emptyProfileSlot(bitmap,found,"skill${at+1}",Rect(q.left,q.top,q.right,q.bottom))else false
             bitmap.recycle()
             if(empty){skillScans.put(JSONObject().put("empty",true));scanSkills(at+1);return@frame}
@@ -1172,6 +1182,11 @@ class BattleOverlay(private val context: Context) {
                         fields.put("_skillText",encoded(textBox))
                         val evidence=skillEvidence.getOrPut(at){SkillReadEvidence()}
                         evidence.addVisual(wikiKind)
+                        // "Poz. N" sits on the skill icon at the left of the window, in the game font.
+                        val iconLabel=Rect(box.left,box.top+box.height/6,box.left+box.width/4,box.top+box.height*11/20)
+                        val labelCrop=if(Rect(0,0,detail.width,detail.height).contains(iconLabel)&&!iconLabel.isEmpty)Bitmap.createBitmap(detail,iconLabel.left,iconLabel.top,iconLabel.width(),iconLabel.height()) else null
+                        val fontRead=labelCrop?.let {digitMemory.read(it)}?.takeIf {it in 1..100}
+                        evidence.addFont(fontRead)
                         fun addEvidence(text:String) {
                             val textKind=visualMemory.byName(text) ?: BattleSkill.recognize(text)
                             evidence.add(textKind,SkillLevelText.parse(text))
@@ -1185,6 +1200,9 @@ class BattleOverlay(private val context: Context) {
                             // Learn the real in-game icon whenever the detail text itself names the skill.
                             val named=BattleSkill.recognize(text)?:visualMemory.byName(text)
                             if(named!=null&&named==evidence.kind)visualMemory.remember(named,text,visual)
+                            // A level OCR settled on its own teaches the font the digits it missed.
+                            val level=evidence.level
+                            if(level!=null&&fontRead!=level&&labelCrop!=null&&SkillLevelText.parse(text)==level)runCatching {digitMemory.learn(labelCrop,level)}
                         }
                         if(borrowedPanel&&!textBox.isEmpty&&Rect(0,0,detail.width,detail.height).contains(textBox)){
                             val crop=Bitmap.createBitmap(detail,textBox.left,textBox.top,textBox.width(),textBox.height())

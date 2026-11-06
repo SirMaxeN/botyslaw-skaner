@@ -74,6 +74,8 @@ class ScanSession(private val clock: () -> Long = System::currentTimeMillis) {
         require(value in 0..MAX_VALUE) { "Wartość musi być pomiędzy 0 a $MAX_VALUE." }
         require(!field.isCost || value > 0) { "Koszt musi być większy od zera." }
         observations[field] = ResourceObservation(value, confirmed, approximate, sourceText)
+        // A value confirmed by the user teaches the game-font reader the digits of that counter's last crop.
+        if (confirmed) runCatching { eu.komars.forgescanner.battle.GameDigitMemory.shared?.confirmCounter(field.name, value) }
         updatedAt = clock()
         onChange?.invoke(snapshot())
     }

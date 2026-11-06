@@ -26,6 +26,7 @@ class GameDigitFontFixtureTest {
   Label("hammers-reference.argb",871,1476,1010,1524,18),Label("hammers-reference.argb",63,1676,217,1724,101),
   Label("hammers-reference.argb",260,1676,420,1724,100),Label("hammers-reference.argb",468,1676,612,1724,99),
   Label("hammers-reference.argb",770,1676,912,1724,62),
+  Label("skill-lightning-18.argb",0,67,220,221,18),
  )
  /** Plain counters (no "Poz." prefix), read with templates from the labels only. */
  private val counters=listOf(
