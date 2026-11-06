@@ -108,25 +108,61 @@ class BattleActivity: Activity() {
         }
         val open=WarPreparationModel.day()!=null
         if(app.battleOverlay.isConfigured()) {
-            val listButton=button("Odczyt listy wojennej",enabled=app.mobile.paired) { prepare("war-list") }
-            if(open && app.mobile.paired) {
-                listButton.isEnabled=false
-                listButton.text="Odczyt listy wojennej — sprawdzam…"
+            var status:JSONObject?=null
+            val listButton=button("Odczyt listy wojennej",enabled=app.mobile.paired) { confirmWarList(status) }
+            val rankingButton=button("Odczyt rankingu klanu",enabled=app.mobile.paired) { confirmRanking(status) }
+            label(if(open) "Niedziela: odczytam też bonusy rywala. Listę na tę wojnę można utworzyć tylko raz." else "Poza niedzielą rywal dostaje takie same bonusy jak nasz klan. Odczyt można powtarzać; lista znika po resecie tygodnia.",13)
+            val discord=TextView(this).apply {textSize=13f;setTextColor(Style.MUTED);setLineSpacing(dp(3).toFloat(),1f);setPadding(0,dp(6),0,dp(6))}
+            if(app.mobile.paired) {
+                body.addView(discord)
+                discord.text="Discord: sprawdzam ostatnie aktualizacje…"
+                listButton.isEnabled=false;rankingButton.isEnabled=false
                 app.mobile.warStatus { result ->
-                    if(!isFinishing && !isDestroyed && listButton.parent===body) {
-                        val locked=result.map { JSONObject(it).getBoolean("locked") }.getOrDefault(false)
+                    if(isFinishing||isDestroyed||listButton.parent!==body)return@warStatus
+                    listButton.isEnabled=true;rankingButton.isEnabled=true
+                    result.fold({
+                        val s=JSONObject(it);status=s
+                        val locked=open&&s.optBoolean("locked")
                         listButton.isEnabled=!locked
                         listButton.text=if(locked) "Lista na tę wojnę już utworzona" else "Odczyt listy wojennej"
                         listButton.contentDescription=if(locked) "Lista na tę wojnę została już utworzona na tym serwerze Discorda. Nie nadpisujemy jej." else "Odczyt listy wojennej"
-                    }
+                        val list=ago(s.optString("list_updated_at"))?.let {"$it${if(s.optBoolean("list_sunday")) " (niedzielna, zablokowana)" else ""}"}?:"brak"
+                        val ranking=ago(s.optString("ranking_updated_at"))?.let {"$it (${s.optInt("ranking_members")} graczy)"}?:"brak"
+                        discord.text="Na Discordzie (/report):\n• lista wojenna: $list\n• ranking klanu: $ranking"
+                    },{discord.text="Nie udało się sprawdzić Discorda. Odczyt nadal możliwy."})
                 }
             }
-            button("Odczyt rankingu klanu",enabled=app.mobile.paired) { prepare("clan-ranking") }
-            label(if(open) "Niedziela: odczytam też bonusy rywala. Listę na tę wojnę zapisuję raz." else "Poza niedzielą rywal dostaje takie same bonusy jak nasz klan. Odczyt można powtarzać; lista znika po resecie tygodnia.",13)
         }
         if(!app.mobile.paired) label("Lista wojenna i ranking wymagają połączenia z Discordem w menu głównym.",13)
         button("Menu główne") { app.closeScanner();startActivity(Intent(this,eu.komars.forgescanner.HomeActivity::class.java)) }
         eu.komars.forgescanner.ui.SupportFooter.add(this,body)
+    }
+    /** "2 godz. temu" for an ISO time from the server, null when nothing was saved. */
+    private fun ago(iso:String?):String? {
+        val at=runCatching {java.time.Instant.parse(iso).toEpochMilli()}.getOrNull()?:return null
+        return android.text.format.DateUtils.getRelativeTimeSpanString(at,System.currentTimeMillis(),android.text.format.DateUtils.MINUTE_IN_MILLIS).toString()
+    }
+    private fun confirmRanking(status:JSONObject?) {
+        val last=ago(status?.optString("ranking_updated_at"))
+        AlertDialog.Builder(this).setTitle("Odczyt rankingu klanu")
+            .setMessage("To tylko aktualizacja danych — trwa około 30 minut (profile wszystkich członków klanu).\n\n" +
+                "Aktualny ranking jest już dostępny dla wszystkich na Discordzie: /report → Ranking klanu" +
+                (last?.let {" (zaktualizowany $it)."}?:".") +
+                "\n\nUruchamiaj tylko, gdy dane są nieaktualne. Niezmienione profile z ostatnich 7 dni nie są czytane ponownie.")
+            .setPositiveButton("Aktualizuj") {_,_ -> prepare("clan-ranking")}
+            .setNegativeButton("Anuluj",null).show()
+    }
+    private fun confirmWarList(status:JSONObject?) {
+        val open=WarPreparationModel.day()!=null
+        if(open&&status?.optBoolean("locked")==true) {message("Lista na tę wojnę została już utworzona w niedzielę. Nie tworzymy nowej — sprawdź /report → Lista wojenna na Discordzie.");return}
+        val last=ago(status?.optString("list_updated_at"))
+        AlertDialog.Builder(this).setTitle("Odczyt listy wojennej")
+            .setMessage("Aktualizacja trwa około godziny (profile obu klanów).\n\n" +
+                (if(open) "Niedziela: lista tworzona jest tylko raz. Po zapisie nikt jej nie nadpisze aż do końca wojny." else "Poza niedzielą rywal dostaje takie same bonusy jak nasz klan. W niedzielę listę można utworzyć tylko raz.") +
+                "\n\nAktualna lista jest dostępna dla wszystkich na Discordzie: /report → Lista wojenna" +
+                (last?.let {" (zaktualizowana $it)."}?:" (jeszcze jej nie ma)."))
+            .setPositiveButton(if(open) "Utwórz listę" else "Aktualizuj") {_,_ -> prepare("war-list")}
+            .setNegativeButton("Anuluj",null).show()
     }
     private fun prepare(side:String) {
         pending=side

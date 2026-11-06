@@ -46,20 +46,21 @@ object ScannerAppearance {
         setColor(PANEL);cornerRadius=dp(context,16).toFloat();setStroke(dp(context,2),stroke)
     }
     fun title(context:Context,text:String,color:Int=ACCENT)=TextView(context).apply {
-        this.text=text;textSize=18f;setTextColor(color);setTypeface(typeface,Typeface.BOLD);setPadding(0,dp(context,2),0,dp(context,4))
+        this.text=text;textSize=15f;setTextColor(color);setTypeface(typeface,Typeface.BOLD);setPadding(0,dp(context,2),0,dp(context,4))
     }
     fun body(context:Context,text:String)=TextView(context).apply {
-        this.text=text;textSize=13f;setTextColor(FOREGROUND);setPadding(0,dp(context,2),0,dp(context,6))
+        this.text=text;textSize=12f;setTextColor(FOREGROUND);setPadding(0,dp(context,2),0,dp(context,6))
     }
     /** The hands-off warning shown by every automatic scan. */
     fun handsOffWarning(context:Context)=TextView(context).apply {
-        text="NIE DOTYKAJ EKRANU\nTRWA AUTOMATYCZNY ODCZYT";textSize=15f;gravity=Gravity.CENTER;setTextColor(WARNING);setTypeface(typeface,Typeface.BOLD)
+        text="NIE DOTYKAJ EKRANU\nTRWA AUTOMATYCZNY ODCZYT";textSize=12f;gravity=Gravity.CENTER;setTextColor(WARNING);setTypeface(typeface,Typeface.BOLD)
     }
     /** Same compact control for battle, research, war, ranking and automatic-resource overlays. */
     fun overlayAction(context:Context,label:String,primary:Boolean=false,action:()->Unit)=Button(context).apply {
-        text=label;contentDescription=label;isAllCaps=false;textSize=14f;gravity=Gravity.CENTER;maxLines=2
-        minHeight=dp(context,48);minimumHeight=dp(context,48);minWidth=0;minimumWidth=0
-        setPadding(dp(context,10),dp(context,6),dp(context,10),dp(context,6))
+        text=label;contentDescription=label;isAllCaps=false;textSize=12f;gravity=Gravity.CENTER;maxLines=2
+        // Compact overlay controls: the game stays visible; 40 dp keeps a comfortable touch target.
+        minHeight=dp(context,40);minimumHeight=dp(context,40);minWidth=0;minimumWidth=0
+        setPadding(dp(context,8),dp(context,3),dp(context,8),dp(context,3))
         stateListAnimator=null
         setTextColor(if(primary) ON_ACCENT else FOREGROUND)
         background=android.graphics.drawable.InsetDrawable(rounded(context,if(primary) ACCENT else CONTROL,10,if(primary) ACCENT else BORDER),0,dp(context,4),0,dp(context,4))
@@ -72,7 +73,7 @@ object ScannerAppearance {
     fun actionRow(context:Context)=android.widget.LinearLayout(context).apply {
         orientation=android.widget.LinearLayout.HORIZONTAL;isBaselineAligned=false;gravity=Gravity.CENTER_VERTICAL
     }
-    fun rowItem(context:Context,height:Int=52)=android.widget.LinearLayout.LayoutParams(0,dp(context,height),1f).apply {
+    fun rowItem(context:Context,height:Int=44)=android.widget.LinearLayout.LayoutParams(0,dp(context,height),1f).apply {
         setMargins(dp(context,3),0,dp(context,3),0)
     }
     fun button(context:Context,label:String,primary:Boolean=false,quiet:Boolean=false,action:()->Unit)=Button(context).apply {

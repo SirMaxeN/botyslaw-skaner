@@ -45,6 +45,20 @@ class WarPreparationOverlay(private val context:Context) {
  private var rankingMode=false
  private var fullAutoRetry=0
  private var paused=false
+ /** Running without the hands-off banner and recovery buttons, so the panel fits beside the list. */
+ private var slim=false
+ /** Collapsed to icons by placement (never by choice): expanded again at the next step. */
+ private var autoCompacted=false
+ private fun setSlim(value:Boolean) {
+  slim=value
+  warning?.visibility=if(value||paused)View.GONE else if(active)View.VISIBLE else warning?.visibility?:View.GONE
+  recovery?.visibility=if(value)View.GONE else View.VISIBLE
+  status?.maxLines=if(value)2 else Int.MAX_VALUE
+ }
+ private fun restoreFullPanel() {
+  if(slim)setSlim(false)
+  if(autoCompacted){autoCompacted=false;chrome?.setCompact(false)}
+ }
  /**
   * Pause keeps screen sharing and every saved profile, cancels pending taps and lets the user leave the
   * game. Resume re-detects the current screen and continues from the last checkpoint.
@@ -122,12 +136,14 @@ class WarPreparationOverlay(private val context:Context) {
  private fun step(at:Int,title:String) {
   if(fullMode)fullStore.log("step",JSONObject().put("stage",at).put("title",title))
   if(!paused)panel?.visibility=View.VISIBLE
+  if(at!=stage)restoreFullPanel() else if(autoCompacted){autoCompacted=false;chrome?.setCompact(false)}
   stage=at;val color=eu.komars.forgescanner.ui.ScannerAppearance.stepColor(at)
   stageLabel?.text=if(rankingMode)"▶ Ranking klanu: $title" else "▶ Krok ${at+1}/${maxOf(at+1,if(listMode) 8 else if(preparingAll) 7 else 6)}: $title";stageLabel?.setTextColor(color)
   (panel?.background as? android.graphics.drawable.GradientDrawable)?.setStroke(dp(2),color)
  }
  private fun clearRecoveryActions() {recovery?.removeAllViews()}
  private fun fail(text:String) {
+  restoreFullPanel()
   if(fullMode){fullStore.log("failure",JSONObject().put("stage",stage).put("target",fullTarget?:JSONObject.NULL).put("reason",text));if(stage==6&&fullStore.state()!=null)retryStep={resumeFullWork()}}
   screenFlow.reset();transitionEpoch++
   setRosterControls(0);warning?.visibility=View.GONE;active=false;generation++;GestureConnection.cancel();shield.hide();selector?.close();selector=null;releaseSelectionFrame()
@@ -215,7 +231,7 @@ class WarPreparationOverlay(private val context:Context) {
   o.getString("clan") to (0 until list.length()).map {WarMember(list.getJSONObject(it).getString("name"),list.getJSONObject(it).getDouble("power"))}
  }.getOrNull()?.takeIf {it.second.size>=2}
  fun start(roster:Boolean,configureAll:Boolean=false,test:Boolean=false,full:Boolean=false,ranking:Boolean=false,savedOnly:Boolean=false) {
-  hide();app.battleOverlay.hide();rankingMode=ranking&&full;fullAutoRetry=0
+  hide();app.battleOverlay.hide();rankingMode=ranking&&full;fullAutoRetry=0;slim=false;autoCompacted=false
   // A run checkpoint belongs to one mode; switching mode restarts navigation but keeps every profile.
   if(full&&!savedOnly&&fullStore.state()?.let {it.optBoolean("ranking")!=rankingMode}==true)fullStore.resetRun()
   fullMode=full;fullProcessed.clear();fullTarget=null;fullSide=false;fullCentered.clear();fullRepairPass=false;fullEnemySwept=false;lastFullViewport=emptyList();stableFullViewport=0;fullCancel=java.util.concurrent.atomic.AtomicBoolean(false);if(full)fullStore.prune();testMode=test;listMode=roster;preparingAll=configureAll;rosterConfigured=false;proposals.clear()
@@ -229,9 +245,9 @@ class WarPreparationOverlay(private val context:Context) {
    else if(active&&protectedBeforeInteraction)panelBounds()?.let {shield.show(it)}
   }
   panel=chrome!!.root;recovery=chrome!!.recovery
-  stageLabel=TextView(context).apply {textSize=14f;setTypeface(null,android.graphics.Typeface.BOLD)};chrome!!.content.addView(stageLabel)
+  stageLabel=TextView(context).apply {textSize=12f;setTypeface(null,android.graphics.Typeface.BOLD)};chrome!!.content.addView(stageLabel)
   warning=ScannerAppearance.handsOffWarning(context);chrome!!.content.addView(warning)
-  status=TextView(context).apply {setTextColor(ScannerAppearance.ACCENT);textSize=14f};chrome!!.content.addView(status)
+  status=TextView(context).apply {setTextColor(ScannerAppearance.ACCENT);textSize=12f};chrome!!.content.addView(status)
   chrome!!.content.addView(recovery)
   listControl=ScannerAppearance.overlayAction(context,"Zatrzymaj listę") {manualListBoundary=true;say("Zatrzymuję przewijanie po bieżącym odczycie…")}.apply {visibility=View.GONE}
   chrome!!.addListControl(listControl!!);chrome!!.show()
@@ -296,11 +312,16 @@ class WarPreparationOverlay(private val context:Context) {
   val previous=box.layoutParams as WindowManager.LayoutParams
   val occupied=Rect(previous.x,previous.y,previous.x+maxOf(box.width,box.measuredWidth),previous.y+maxOf(box.height,box.measuredHeight))
   val y=if(!Rect.intersects(occupied,r))previous.y else eu.komars.forgescanner.model.OverlayPlacement.find(height,r.top,r.bottom,maxOf(box.height,box.measuredHeight),0,dp(20),32)
+  if(y==null&&chrome?.compact==false&&!slim) {
+   // No room beside the target: first drop the banner and recovery buttons (STOP and Pause stay).
+   setSlim(true)
+   later(180){away(r,attempt,next)}
+   return
+  }
   if(y==null&&chrome?.compact==false) {
-   // No room beside the target: hide the panel for this action only; it never collapses to icons by itself.
-   // The next placement (or step change) shows it again.
-   box.visibility=View.INVISIBLE
-   later(120){next()}
+   // Last resort only; the panel expands again by itself at the next step.
+   autoCompacted=true;chrome?.setCompact(true)
+   later(180){away(r,attempt,next)}
    return
   }
   if(y==null){fail("Brak miejsca na STOP poza polem.");return}
@@ -1213,7 +1234,8 @@ class WarPreparationOverlay(private val context:Context) {
     }
    }})
   })
-  recovery?.addView(ScannerAppearance.overlayAction(context,if(fullComputing)"Wróć do aplikacji i wznów braki"else"Ponów tylko brakujące profile") {
+  // Only offered when something is actually missing; a complete list has nothing to resume.
+  if(missing.isNotEmpty())recovery?.addView(ScannerAppearance.overlayAction(context,"Doczytaj brakujące profile (${missing.size})") {
    missing.firstOrNull()?.let {(enemy,member,_)->fullSide=enemy;fullTarget=member.name}
    missing.forEach {(enemy,member,_)->fullProcessed.remove(fullId(enemy,member))};saveFull("member",true)
    if(fullComputing){context.startActivity(android.content.Intent(context,BattleActivity::class.java).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK));stop()}
@@ -1319,6 +1341,6 @@ class WarPreparationOverlay(private val context:Context) {
   val g=generation
   app.mobile.sendWar(body) {result ->
    if(fullMode)fullStore.log("upload",JSONObject().put("kind",if(testMode)"war-preview" else "war").put("ok",result.isSuccess).put("error",result.exceptionOrNull()?.message?:JSONObject.NULL))
-   if(active && g==generation)result.fold({if(!testMode)data.edit().putString("uploadedDay",day).apply();status?.text=if(testMode)"Lista zapisana (równe bonusy, poza niedzielą). Otwórz /report war-list na Discordzie. Odczyt można powtórzyć." else "Lista zapisana na Discordzie. Zablokowano ponowny zapis w tej wojnie.";warning?.visibility=View.GONE;active=false;if(fullMode)addFullRecovery()},{fail(it.message?:"Nie udało się wysłać listy.");if(fullMode)addFullRecovery()})}
+   if(active && g==generation)result.fold({if(!testMode)data.edit().putString("uploadedDay",day).apply();status?.text=if(testMode)"Lista zapisana (równe bonusy, poza niedzielą). Otwórz /report war-list na Discordzie. Odczyt można powtórzyć." else "Lista zapisana na Discordzie. Zablokowano ponowny zapis w tej wojnie.";warning?.visibility=View.GONE;active=false;if(fullMode&&testMode)addFullRecovery()},{fail(it.message?:"Nie udało się wysłać listy.");if(fullMode)addFullRecovery()})}
  }
 }

@@ -77,3 +77,8 @@ On 2026-10-29 the Alpha release 1.3.0 (35) was submitted through the publishing 
 Entering or restoring the results screen closes both scanner overlays and stops MediaProjection through the existing capture shutdown path. ScanSession values and Discord pairing are retained; sending/copying is no longer required to stop capture. Starting another scan requires fresh Android screen-capture consent. This change has not been submitted to Google Play.
 
 The counter mask also preserves red insufficient-resource digits in both paired and single-field OCR, including skill x5 costs and mount costs. It retains white digits and the existing independent-frame consensus; no extra recognition passes are added. Automated color-mask regression covers white/red text and dark/cyan/green button backgrounds.
+
+
+### 1.4.0 (37) submitted, 2026-11-06
+
+Clan war tools (war list, clan ranking, Discord update status, Sunday one-list lock) and the adaptive icon fix (22 dp safe-zone inset, navy background) were uploaded to the Alpha closed-testing track as "1.4.0 Wojna klanów: lista i ranking" and submitted; Console showed "Changes in review" with preliminary checks running. Same upload certificate as 1.3.2. Checks: 513 JVM tests (53 optional skipped, 0 failures), Play lint passed. Warnings: deobfuscation file and native debug symbols only. Not an approval.

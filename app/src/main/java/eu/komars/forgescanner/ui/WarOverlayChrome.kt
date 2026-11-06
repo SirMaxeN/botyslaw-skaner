@@ -47,9 +47,9 @@ internal class WarOverlayChrome(private val context:Context,private val stop:()-
  }
  private fun handle()=TextView(context).apply {text="⠿";gravity=Gravity.CENTER;textSize=22f;setTextColor(ScannerAppearance.ACCENT);contentDescription="Przesuń nakładkę";setOnTouchListener(drag)}
  init {
-  fullHeader.addView(handle(),LinearLayout.LayoutParams(dp(28),dp(44)))
-  fullHeader.addView(TextView(context).apply {text=title;setTextColor(ScannerAppearance.ACCENT);textSize=13f;setOnTouchListener(drag)},LinearLayout.LayoutParams(0,dp(44),1f))
-  fullHeader.addView(ScannerIconBar.button(context,"▁","Zwiń do ikon") {setCompact(true)},LinearLayout.LayoutParams(dp(44),dp(44)))
+  fullHeader.addView(handle(),LinearLayout.LayoutParams(dp(28),dp(36)))
+  fullHeader.addView(TextView(context).apply {text=title;setTextColor(ScannerAppearance.ACCENT);textSize=12f;setOnTouchListener(drag)},LinearLayout.LayoutParams(0,dp(36),1f))
+  fullHeader.addView(ScannerIconBar.button(context,"▁","Zwiń do ikon") {setCompact(true)},LinearLayout.LayoutParams(dp(36),dp(36)))
   compactRow.addView(handle(),LinearLayout.LayoutParams(dp(24),ScannerIconBar.cell(context,3)))
   for(button in listOf(ScannerIconBar.button(context,"⛶","Rozwiń nakładkę") {setCompact(false)},boundaryIcon,ScannerIconBar.button(context,"✕","Zakończ odczyt ekranu",stop)))compactRow.addView(button,LinearLayout.LayoutParams(ScannerIconBar.cell(context,3),ScannerIconBar.cell(context,3)))
   root.addView(fullHeader);root.addView(compactRow);root.addView(scroll)

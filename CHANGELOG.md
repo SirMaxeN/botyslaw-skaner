@@ -1,5 +1,17 @@
 # Change log
 
+## 1.4.0 (37) — Google Play Alpha / AUTO Test 80
+
+- Clan war tools from AUTO Tests 70–79 ship in the full version: "Odczyt listy wojennej" (unique opponent per player, short Discord report), "Odczyt rankingu klanu" (round-robin, all players), incremental rescans, pause/resume, game-font digits and learned skill icons.
+- Start screen shows when the war list and clan ranking were last updated on Discord (/report) before any scan.
+- Confirmation before a scan: ranking is only a data update (~30 min) and results are already on Discord; the war list takes ~1 hour and on Sunday can be created only once. A Sunday list that already exists blocks a new one.
+- The final war-list panel no longer shows the confusing "Wróć do aplikacji i wznów braki"; "Doczytaj brakujące profile (N)" appears only when profiles are actually missing, and a locked Sunday list offers no recompute.
+
+## AUTO Test 79 (1.3.1-auto-test, unreleased)
+
+- Fix Test 78 regression "Nie można bezpiecznie otworzyć obszaru gestu": a hidden panel still occupied the gesture corridor. When the panel does not fit beside the target it first becomes slim (no banner and recovery buttons; step, status, Pause and STOP stay); only if that is not enough it collapses to icons and expands again at the next step.
+- Smaller overlay typography and controls in the shared style (titles 15 sp, text and buttons 12 sp, 40 dp buttons, 36 dp panel header), so panels cover less of the game.
+
 ## AUTO Test 78 (1.3.1-auto-test, unreleased)
 
 - The war/ranking panel never collapses to icons by itself: when it cannot sit beside a target it is hidden for that action and shown again at the next step.
