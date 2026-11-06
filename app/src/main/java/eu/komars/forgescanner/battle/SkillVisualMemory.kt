@@ -40,8 +40,12 @@ class SkillVisualMemory(private val context:Context) {
             val c=small.getPixel(x,y);bits=(bits shl 1) or if(gray(c)>gray(small.getPixel(x+1,y))) 1L else 0L
             red+=c ushr 16 and 255;green+=c ushr 8 and 255;blue+=c and 255
         }
-        if(small!==crop) small.recycle();crop.recycle()
-        return JSONObject().put("hash",bits.toString()).put("r",red/64).put("g",green/64).put("b",blue/64)
+        if(small!==crop) small.recycle()
+        // 16×16 colour thumbnail of the in-game icon: compared with icons learned from confirmed reads.
+        val thumb=Bitmap.createScaledBitmap(crop,16,16,true);val hex=StringBuilder(16*16*6)
+        for(y in 0 until 16)for(x in 0 until 16)hex.append(String.format(java.util.Locale.ROOT,"%06x",thumb.getPixel(x,y) and 0xffffff))
+        if(thumb!==crop)thumb.recycle();crop.recycle()
+        return JSONObject().put("hash",bits.toString()).put("r",red/64).put("g",green/64).put("b",blue/64).put("thumb",hex.toString())
     }
     private fun score(a:JSONObject,b:JSONObject):Int {
         val bits=java.lang.Long.bitCount(a.getString("hash").toLong() xor b.getString("hash").toLong())
@@ -49,6 +53,7 @@ class SkillVisualMemory(private val context:Context) {
         return bits+color/8
     }
     fun recognize(signature:JSONObject):BattleSkill? {
+        IconThumbnails.recognize(signature.optString("thumb"),prefs.all.values.mapNotNull { value -> runCatching { val o=JSONObject(value as String);BattleSkill.valueOf(o.getString("type")) to o.getJSONObject("visual").optString("thumb") }.getOrNull() })?.let { return it }
         val scored=prefs.all.values.mapNotNull { value -> runCatching { val o=JSONObject(value as String);BattleSkill.valueOf(o.getString("type")) to score(signature,o.getJSONObject("visual")) }.getOrNull() }
             .groupBy { it.first }.map { (type,values) -> type to values.minOf { it.second } }.sortedBy { it.second }
         val best=scored.firstOrNull() ?: return null

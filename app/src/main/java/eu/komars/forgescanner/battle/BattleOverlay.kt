@@ -39,6 +39,28 @@ class BattleOverlay(private val context: Context) {
     private var fairyProgressionEvidence=FairyProgressionEvidence()
     private val fairyMemory=FairyLevelMemory(context)
     private var fairyGlyph:FairyLevelGlyph.Signature?=null
+    /** Level read from the fairy's "Poz. N" label by the game-font digit templates. */
+    private var fairyFont:Int?=null
+    private val digitMemory=GameDigitMemory(context)
+    /** The lower part of an equipment/fairy slot holds its "Poz. N" label. */
+    private fun labelCrop(image:Bitmap,r:Rect,fromFraction:Double):Bitmap? {
+        val top=r.top+(r.height()*fromFraction).toInt();val box=Rect(r.left,top,r.right,r.bottom)
+        if(box.width()<8||box.height()<6||!Rect(0,0,image.width,image.height).contains(box))return null
+        return Bitmap.createBitmap(image,box.left,box.top,box.width(),box.height())
+    }
+    private fun fontLevel(image:Bitmap,r:Rect,fromFraction:Double):Int? {
+        val crop=labelCrop(image,r,fromFraction)?:return null
+        return digitMemory.read(crop).also {if(crop!==image)crop.recycle()}
+    }
+    /** Private, bounded diagnostics of the one-image skill read (no screenshots). */
+    private fun logQuick(slot:Int,detail:org.json.JSONObject) {
+        if(!eu.komars.forgescanner.BuildConfig.DEBUG)return
+        runCatching {
+            val file=java.io.File(context.cacheDir,"quick-skills.jsonl")
+            val lines=(if(file.exists())file.readLines().takeLast(299) else emptyList())+detail.put("slot",slot).put("at",System.currentTimeMillis()).toString()
+            file.writeText(lines.joinToString("\n",postfix="\n"))
+        }
+    }
     private var fairySnapshot:Bitmap?=null
     private var fairyHint:String?=null
     private var fairyAbsent=false
@@ -741,7 +763,7 @@ class BattleOverlay(private val context: Context) {
     }
     private fun clearProfileSnapshot() {
         quickSkills.clear();quickSkillPending=0;afterQuickSkills=null
-        fairySnapshot?.let {if(!it.isRecycled)it.recycle()};fairySnapshot=null;fairyGlyph=null;fairyHint=null;fairyAbsent=false;batchPets=null;batchMounted=null
+        fairySnapshot?.let {if(!it.isRecycled)it.recycle()};fairySnapshot=null;fairyGlyph=null;fairyFont=null;fairyHint=null;fairyAbsent=false;batchPets=null;batchMounted=null
     }
     private fun emptyProfileSlot(image:Bitmap,layout:BattleSetupGeometry.Layout,key:String,r:Rect):Boolean {
         val panel=layout.panel?:return false
@@ -773,6 +795,7 @@ class BattleOverlay(private val context: Context) {
                 fairySnapshot?.recycle()
                 val captured=Bitmap.createBitmap(image,r.left,r.top,r.width(),r.height())
                 fairyGlyph=fairyMemory.capture(captured,Rect(0,0,captured.width,captured.height))
+                fairyFont=fontLevel(captured,Rect(0,0,captured.width,captured.height),.55)?.takeIf {it in 1..20}
                 fairySnapshot=if(captured===image)captured.copy(Bitmap.Config.ARGB_8888,false)else captured
                 var yellow=0;var red=0;var purple=0
                 for(y in r.top until r.top+r.height()*2/3)for(x in r.left until r.right) {
@@ -797,18 +820,33 @@ class BattleOverlay(private val context: Context) {
                 quickSkills[at]=JSONObject().put("empty",true)
                 continue
             }
-            val match=visualMemory.wikiMatch(image,icon)?.takeIf {it.error<=42 && it.margin>=6}?:continue
+            val wiki=visualMemory.wikiMatch(image,icon)
+            // Icons learned from this game's own confirmed detail windows first, then the wiki artwork.
+            val type=visualMemory.recognize(visualMemory.fingerprint(image,icon))?.name
+                ?:wiki?.takeIf {it.error<=42 && it.margin>=6}?.id
+            if(type==null){logQuick(at,JSONObject().put("result","icon").put("error",wiki?.error?:-1).put("margin",wiki?.margin?:-1));continue}
             val label=Rect(q.left-q.width/10,q.bottom-q.height/6,q.right+q.width/10,q.bottom+q.height/2)
-            if(!bounds.contains(label))continue
+            if(!bounds.contains(label)){logQuick(at,JSONObject().put("result","label-bounds"));continue}
             val crop=Bitmap.createBitmap(image,label.left,label.top,label.width(),label.height())
+            val learnCopy=crop.copy(Bitmap.Config.ARGB_8888,false)
+            val font=digitMemory.read(crop)?.takeIf {it in 1..100}
             val levels=mutableListOf<Int>()
             quickSkillPending++
             capturedText.read(crop,{raw ->
                 SkillLevelText.parse(raw)?.let(levels::add)
-                levels.size>=2&&levels.distinct().size==1
+                // Two agreeing OCR passes, or one OCR pass confirmed by the independent game-font reading.
+                (levels.size>=2&&levels.distinct().size==1)||(font!=null&&levels.lastOrNull()==font)
             }) {
-                val level=levels.distinct().singleOrNull()
-                if(level!=null&&levels.size>=2)quickSkills[at]=JSONObject().put("type",match.id).put("level",level).put("fromProfile",true)
+                val agreed=levels.takeIf {it.size>=2&&it.distinct().size==1}?.first()
+                val level=agreed?:font?.takeIf {f->levels.contains(f)||levels.isEmpty()}
+                if(level!=null&&(agreed!=null||font!=null&&levels.contains(font))) {
+                    quickSkills[at]=JSONObject().put("type",type).put("level",level).put("fromProfile",true).put("levelSource",if(agreed!=null)"ocr" else "font+ocr")
+                    if(agreed!=null&&font!=agreed)digitMemory.learn(learnCopy,agreed)
+                } else if(level!=null&&levels.isEmpty()) {
+                    quickSkills[at]=JSONObject().put("type",type).put("level",level).put("fromProfile",true).put("levelSource","font")
+                }
+                logQuick(at,JSONObject().put("result",if(quickSkills[at]!=null)"ok" else "level").put("ocr",org.json.JSONArray(levels)).put("font",font?:-1))
+                learnCopy.recycle()
                 quickSkillPending--
                 if(quickSkillPending==0){val resume=afterQuickSkills;afterQuickSkills=null;resume?.invoke()}
             }
@@ -989,6 +1027,7 @@ class BattleOverlay(private val context: Context) {
                 if(r>80 && b>100 && b>g*1.3 && r>g*1.2)purple++
             }
             fairyGlyph=fairyMemory.capture(bitmap,Rect(q.left,q.top,q.right,q.bottom))
+            fontLevel(bitmap,Rect(q.left,q.top,q.right,q.bottom),.55)?.takeIf {it in 1..20}?.let {fairyFont=it}
             bitmap.recycle()
             val kind=when {yellow>15->"TIRA";red>8->"LORA";purple>8->"MIRA";else->null}
             read("_fairy",4,contrast=attempt) {text ->
@@ -1058,10 +1097,12 @@ class BattleOverlay(private val context: Context) {
                         val glyphLevel=fairyLevels.acceptedWithGlyph(fairyMemory.recognize(fairyGlyph))
                         val fallback=(glyphLevel?:fairyLevels.accepted())?.takeIf {fairyProgressionEvidence.agreesWith(it)}
                         if(calculated==null&&at<2&&(fallback==null||fairyProgressionEvidence.candidates.isNotEmpty())){status?.text="Sprawdzam współczynnik wróżki i zielony przyrost.";detail(at+1);return@read}
-                        val automatic=if(calculated==null&&fallback==null)fairyLevels.automaticChoice(fairyProgressionEvidence.candidates) else null
-                        val accepted=calculated?.level?:fallback?:automatic
+                        // The game-font reading is independent of ML Kit; it must not contradict the OCR candidates or the progression.
+                        val font=if(calculated==null&&fallback==null)fairyFont?.takeIf {fairyProgressionEvidence.agreesWith(it)&&(fairyLevels.candidates.isEmpty()||it in fairyLevels.candidates)} else null
+                        val automatic=if(calculated==null&&fallback==null&&font==null)fairyLevels.automaticChoice(fairyProgressionEvidence.candidates) else null
+                        val accepted=calculated?.level?:fallback?:font?:automatic
                         if(accepted!=null){
-                            fairyScan.put("level",accepted).put("levelConfirmed",false).put("levelSource",if(calculated!=null)"progression"else if(glyphLevel!=null)"glyph"else if(automatic!=null)"single-choice" else"views")
+                            fairyScan.put("level",accepted).put("levelConfirmed",false).put("levelSource",if(calculated!=null)"progression"else if(glyphLevel!=null)"glyph"else if(font!=null)"font" else if(automatic!=null)"single-choice" else"views")
                             if(calculated!=null){fairyScan.put("levelCalculation",fairyProgressions.evidence(calculated));status?.text="Poziom $accepted wyliczony z bonusu i przyrostu.";fairyMemory.remember(accepted,fairyGlyph)}
                             proceed()
                         }
@@ -1141,6 +1182,9 @@ class BattleOverlay(private val context: Context) {
                             evidence.kind?.let {item.put("type",it.name)}
                             evidence.level?.let {item.put("level",it)}
                             skillScans.put(item)
+                            // Learn the real in-game icon whenever the detail text itself names the skill.
+                            val named=BattleSkill.recognize(text)?:visualMemory.byName(text)
+                            if(named!=null&&named==evidence.kind)visualMemory.remember(named,text,visual)
                         }
                         if(borrowedPanel&&!textBox.isEmpty&&Rect(0,0,detail.width,detail.height).contains(textBox)){
                             val crop=Bitmap.createBitmap(detail,textBox.left,textBox.top,textBox.width(),textBox.height())

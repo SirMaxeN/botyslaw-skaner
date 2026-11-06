@@ -1,5 +1,11 @@
 # Change log
 
+## AUTO Test 75 (1.3.1-auto-test, unreleased)
+
+- Game-font digit reader for "Poz. N" labels: templates cut from real 1080×2340 screenshots (14/18 correct, 0 wrong in leave-one-out on private fixtures) plus digits learned from labels confirmed by two agreeing OCR passes. It is a second vote: one OCR pass that agrees with it is enough, and it never overrides contradicting OCR.
+- One-image skill reads fall back to learned skill artwork when the wiki template is not decisive; fairy level can be confirmed by the font reading when it agrees with OCR candidates and the progression.
+- Private quick-skill diagnostics (cache/quick-skills.jsonl): icon error/margin, OCR votes and font reading per slot.
+
 ## AUTO Test 74 (1.3.1-auto-test, unreleased)
 
 - One "Odczyt listy wojennej" button replaces the power-only list, list test and full-profile test buttons. Sunday: rival bonuses are scanned and the list is saved once. Other days: the rival gets our clan's bonuses, the read is repeatable and the list disappears with the weekly reset.

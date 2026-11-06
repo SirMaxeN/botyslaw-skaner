@@ -31,7 +31,7 @@ internal object FullProfileCodec {
    }
   }
   require(draft.has("pets")&&draft.optInt("pets",-1) in 0..3&&draft.has("mounted")) {"Nie potwierdzono zwierzaków lub wierzchowca."}
-  return JSONObject(draft.toString()).put("name",expected).put("damage",damage).put("health",health).put("ranged",ranged).put("skills",skills).put("skillsReviewed",true).put("pets",draft.getInt("pets")).put("mounted",draft.getBoolean("mounted")).put("skillMastery",0.0).put("bonuses",bonuses).put("fairy",fairy)
+  return JSONObject(draft.toString()).put("name",expected).put("damage",damage).put("health",health).put("ranged",ranged).put("skills",skills).put("skillsReviewed",true).put("pets",draft.getInt("pets")).put("mounted",draft.getBoolean("mounted")).put("skillMastery",0.0).put("bonuses",bonuses).put("fairy",fairy).apply {remove("skillScans")}
  }
  fun profile(o:JSONObject):BattleProfile {
   val values=o.optJSONObject("bonuses");val raw=o.optString("raw")
