@@ -159,7 +159,7 @@ class UpdateActivity : Activity() {
     private fun openScanner() {
         if (isFinishing || isDestroyed) return
         playChecker?.cancel()
-        if (!manual) startActivity(Intent(this, MainActivity::class.java))
+        if (!manual) startActivity(Intent(this, eu.komars.forgescanner.HomeActivity::class.java))
         finish()
     }
 }

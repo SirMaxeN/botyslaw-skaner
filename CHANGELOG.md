@@ -1,5 +1,11 @@
 # Change log
 
+## 1.4.1 (38) — Google Play hotfix
+
+- The app opens on the main menu again (1.4.0 Play started on the resource screen).
+- Resource scan: the red unread-chat badge on the game's home screen was mistaken for a close X, so the scan stopped with "Nie rozpoznaję głównego ekranu". The badge zone is ignored; private screenshot regression added.
+- One-time reset of screen fields saved by 1.3.x (scan calibrations, navigation, read checkpoints) on the first start after the update. Discord pairing, drafts and learned reading data are kept. The AUTO Test build is not affected.
+
 ## 1.4.0 (37) — Google Play Alpha / AUTO Test 80
 
 - Clan war tools from AUTO Tests 70–79 ship in the full version: "Odczyt listy wojennej" (unique opponent per player, short Discord report), "Odczyt rankingu klanu" (round-robin, all players), incremental rescans, pause/resume, game-font digits and learned skill icons.

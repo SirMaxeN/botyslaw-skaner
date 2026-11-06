@@ -82,3 +82,8 @@ The counter mask also preserves red insufficient-resource digits in both paired 
 ### 1.4.0 (37) submitted, 2026-11-06
 
 Clan war tools (war list, clan ranking, Discord update status, Sunday one-list lock) and the adaptive icon fix (22 dp safe-zone inset, navy background) were uploaded to the Alpha closed-testing track as "1.4.0 Wojna klanów: lista i ranking" and submitted; Console showed "Changes in review" with preliminary checks running. Same upload certificate as 1.3.2. Checks: 513 JVM tests (53 optional skipped, 0 failures), Play lint passed. Warnings: deobfuscation file and native debug symbols only. Not an approval.
+
+
+### 1.4.1 (38) hotfix submitted, 2026-11-06
+
+Opens on the main menu, ignores the red unread-chat badge in home detection (it read as a close X and stopped the resource scan), and clears 1.3.x screen fields once on first start (not in AUTO Test). Uploaded to Alpha and submitted by the user; 514 JVM tests, Play lint passed. Not an approval.

@@ -77,8 +77,15 @@ class GameUiGeometryDetector(private val width: Int, private val height: Int, pr
             2 -> GameScreenKind.TECHNOLOGY
             else -> GameScreenKind.UNKNOWN
         }
-        return if (close == null && CloseButtonPixelDetector().detect(width,height,pixels) == null && potion != null && homeForgeButtons().isNotEmpty())
+        val anyClose = CloseButtonPixelDetector().detect(width,height,pixels)?.takeUnless(::chatBadge)
+        return if (close == null && anyClose == null && potion != null && homeForgeButtons().isNotEmpty())
             GameScreenKind.HOME else GameScreenKind.UNKNOWN
+    }
+
+    /** The red unread-chat counter (bottom left, above the menu bar) can look like a small red X button. */
+    private fun chatBadge(region: PixelRegion): Boolean {
+        val x = (region.left + region.right) / 2.0; val y = (region.top + region.bottom) / 2.0
+        return x < width * .20 && y in height * .80..height * .93
     }
 
     fun detect(step: AutoScanStep): GameUiProposal? {

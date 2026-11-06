@@ -9,6 +9,9 @@ import eu.komars.forgescanner.model.CalibrationStore
 import eu.komars.forgescanner.ui.OverlayController
 import eu.komars.forgescanner.sync.MobileSyncClient
 
+/** Bump to clear saved screen fields once more after an incompatible overlay/navigation change. */
+private const val SETUP_SCHEMA = 2
+
 class ScannerApplication : Application() {
     var session = ScanSession()
         private set
@@ -86,8 +89,22 @@ class ScannerApplication : Application() {
         CaptureConnection.stop()
     }
 
+    /**
+     * Screen fields saved by 1.3.x and earlier do not match the current overlays and navigation.
+     * Clear them once after the update (before any store reads them); Discord pairing, drafts and
+     * learned reading data stay. The test build keeps its calibration (AGENTS.md).
+     */
+    private fun resetOldSetupOnce() {
+        if (BuildConfig.BUILD_TYPE == "autoTest") return
+        val migrations = getSharedPreferences("app_migrations_v1", MODE_PRIVATE)
+        if (migrations.getInt("setup_schema", 0) >= SETUP_SCHEMA) return
+        for (name in listOf("scan_calibrations_v1", "auto_scan_navigation_v1", "auto_read_checkpoints_v1"))
+            getSharedPreferences(name, MODE_PRIVATE).edit().clear().commit()
+        migrations.edit().putInt("setup_schema", SETUP_SCHEMA).commit()
+    }
     override fun onCreate() {
         super.onCreate()
+        resetOldSetupOnce()
         eu.komars.forgescanner.battle.GameDigitMemory.shared=eu.komars.forgescanner.battle.GameDigitMemory(this)
         if(BuildConfig.DEBUG)Thread {
             runCatching {val source=java.io.File(cacheDir,"home-rejected.png");if(source.exists()) {
