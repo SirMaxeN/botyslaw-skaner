@@ -1,5 +1,10 @@
 # Change log
 
+## AUTO Test 76 (1.3.1-auto-test, unreleased)
+
+- Game-font reader extended to resource counters (counter mode: rightmost digit run, leading resource icon skipped). Private fixtures: anvil hammer counter 9383 read correctly in 3/3 screenshots; "Poz." labels 25/27 correct, 0 wrong. Templates now cover digits 0–9.
+- Resource counters: the font is a per-frame vote that settles unstable OCR (e.g. 3/5/8 disagreement) only when all three frames give the same value and that value is also an OCR candidate. It never overrides stable OCR. Three agreeing OCR frames teach the font new digits.
+
 ## AUTO Test 75 (1.3.1-auto-test, unreleased)
 
 - Game-font digit reader for "Poz. N" labels: templates cut from real 1080×2340 screenshots (14/18 correct, 0 wrong in leave-one-out on private fixtures) plus digits learned from labels confirmed by two agreeing OCR passes. It is a second vote: one OCR pass that agrees with it is enough, and it never overrides contradicting OCR.

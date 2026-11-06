@@ -21,6 +21,16 @@ class GameDigitFontFixtureTest {
   Label("failure-test66-000534.argb",456,1418,542,1460,3),Label("failure-test66-000534.argb",548,1418,647,1460,49),
   Label("failure-test66-000534.argb",649,1418,750,1460,35),Label("failure-test66-000534.argb",843,1418,930,1460,7),
   Label("dzikiroman-170502.argb",786,1082,936,1130,113),Label("dzikiroman-170502.argb",836,1426,936,1464,10),
+  Label("hammers-reference.argb",80,1476,205,1524,9),Label("hammers-reference.argb",270,1476,412,1524,24),
+  Label("hammers-reference.argb",468,1476,612,1524,96),Label("hammers-reference.argb",670,1476,810,1524,58),
+  Label("hammers-reference.argb",871,1476,1010,1524,18),Label("hammers-reference.argb",63,1676,217,1724,101),
+  Label("hammers-reference.argb",260,1676,420,1724,100),Label("hammers-reference.argb",468,1676,612,1724,99),
+  Label("hammers-reference.argb",770,1676,912,1724,62),
+ )
+ /** Plain counters (no "Poz." prefix), read with templates from the labels only. */
+ private val counters=listOf(
+  Label("hammers-reference.argb",470,1926,616,1978,9383),Label("hammers-second.argb",470,1926,616,1978,9383),
+  Label("hammers-third.argb",470,1926,616,1978,9383),
  )
  private val root=listOf(File("../.local/font-fixtures"),File(".local/font-fixtures")).firstOrNull {it.isDirectory}
  private val images=mutableMapOf<String,Triple<Int,Int,IntArray>>()
@@ -46,6 +56,14 @@ class GameDigitFontFixtureTest {
    report.append("read ${label.value} -> $read\n")
   }
   report.append("correct=$correct unknown=$unknown wrong=$wrong\n")
+  val all=learned.flatMap {it.second}
+  var counterCorrect=0
+  for(label in counters){val (w,h,p)=crop(label);val read=GameDigitFont.readCounter(w,h,p,all);if(read==label.value.toLong())counterCorrect++ else if(read!=null)wrong++;report.append("counter ${label.value} -> $read\n")
+   val glyphs=GameDigitFont.segment(w,h,p,prefixed=false)
+   report.append("  glyphs=${glyphs?.size} aspects=${glyphs?.map {String.format("%.2f",it.aspect)}}\n")
+   glyphs?.forEach {g->val sc=all.groupBy {it.digit}.map {(d,l)->d to l.minOf {GameDigitFont.error(g,it.glyph)}}.sortedBy {it.second}.take(3);report.append("  ${sc.map {"${it.first}:"+String.format("%.2f",it.second)}}\n")}
+  }
+  report.append("counters correct=$counterCorrect/${counters.size}\n")
   File(root,"font-report.txt").writeText(report.toString())
   if(System.getenv("FONT_WRITE_ASSET")=="1")File("src/main/assets/game_digits_v1.txt").writeText(GameDigitFont.encode(learned.flatMap {it.second})+"\n")
   assertEquals("no wrong reads",0,wrong)

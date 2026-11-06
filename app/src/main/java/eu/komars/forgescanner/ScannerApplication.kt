@@ -88,6 +88,7 @@ class ScannerApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        eu.komars.forgescanner.battle.GameDigitMemory.shared=eu.komars.forgescanner.battle.GameDigitMemory(this)
         if(BuildConfig.DEBUG)Thread {
             runCatching {val source=java.io.File(cacheDir,"home-rejected.png");if(source.exists()) {
                 val image=android.graphics.BitmapFactory.decodeFile(source.absolutePath)

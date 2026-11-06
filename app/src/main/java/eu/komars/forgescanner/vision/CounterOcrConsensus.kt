@@ -13,7 +13,12 @@ object CounterOcrConsensus {
                 reason = "Niepewny odczyt — wybierz wartość ręcznie. ${candidate.reason}") else candidate
         }
 
-    fun combine(frames: List<OcrAnalysis>, target: ScanTarget): OcrAnalysis {
+    /**
+     * fontVotes: one game-font reading per source frame (null = no answer). They never override a
+     * stable OCR result; they only settle an unstable one when all frames read the same value and
+     * that value is also one of the OCR candidates.
+     */
+    fun combine(frames: List<OcrAnalysis>, target: ScanTarget, fontVotes: List<Long?> = emptyList()): OcrAnalysis {
         require(!target.isInventory)
         val choices = frames.map { frame ->
             OcrChoices.unique(frame.candidates.filter { it.field == null || it.field == target.field }, target.field.isCost)
@@ -26,9 +31,15 @@ object CounterOcrConsensus {
         }.sortedWith(compareByDescending<OcrCandidate> { votes[it.value] ?: 0 }.thenBy { it.approximate }.thenByDescending { it.confidence })
         val stable = frames.size == FRAME_COUNT && frames.all { it.error == null && !it.requiresConfirmation } &&
             choices.all { it.size == 1 } && choices.map { it.single().value }.distinct().size == 1
-        return OcrAnalysis(candidates, frames.flatMap { it.lines },
+        val font = fontVotes.takeIf { it.size == FRAME_COUNT && it.all { v -> v != null } && it.distinct().size == 1 }?.first()
+        val fontSettles = !stable && font != null && candidates.any { it.value == font } &&
+            frames.none { it.error != null }
+        val ordered = if (fontSettles) candidates.sortedByDescending { it.value == font }
+            .map { if (it.value == font) it.copy(approximate = false, reason = "Zgodne klatki: ${votes[it.value]}/${frames.size} + czcionka gry ${FRAME_COUNT}/${FRAME_COUNT}.") else it }
+            else candidates
+        return OcrAnalysis(ordered, frames.flatMap { it.lines },
             error = if (candidates.isEmpty()) "${target.title}: brak czytelnej liczby. Ustaw obszar lub wpisz wartość ręcznie." else null,
-            requiresConfirmation = !stable)
+            requiresConfirmation = !stable && !fontSettles)
     }
 }
 

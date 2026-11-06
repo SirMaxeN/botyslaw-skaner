@@ -96,4 +96,20 @@ class CounterOcrConsensusTest {
         assertTrue(CounterOcrConsensus.combine(conflictingSourceFrames, ScanTarget.HAMMERS).requiresConfirmation)
     }
 
+
+    @Test fun gameFontSettlesThreeFiveEightOnlyWhenEveryFrameAgreesWithAnOcrCandidate() {
+        val frames = listOf(frame(9883), frame(9383), frame(9383))
+        assertTrue(CounterOcrConsensus.combine(frames, ScanTarget.HAMMERS).requiresConfirmation)
+        val settled = CounterOcrConsensus.combine(frames, ScanTarget.HAMMERS, listOf(9383L, 9383L, 9383L))
+        assertFalse(settled.requiresConfirmation)
+        assertEquals(9383L, settled.candidates.first().value)
+        assertTrue(CounterOcrConsensus.combine(frames, ScanTarget.HAMMERS, listOf(9383L, null, 9383L)).requiresConfirmation)
+        assertTrue(CounterOcrConsensus.combine(frames, ScanTarget.HAMMERS, listOf(1234L, 1234L, 1234L)).requiresConfirmation)
+    }
+
+    @Test fun gameFontNeverOverridesAStableOcrResult() {
+        val stable = CounterOcrConsensus.combine(List(3) { frame(9383) }, ScanTarget.HAMMERS, listOf(9883L, 9883L, 9883L))
+        assertFalse(stable.requiresConfirmation)
+        assertEquals(9383L, stable.candidates.single().value)
+    }
 }

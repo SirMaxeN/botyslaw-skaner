@@ -6,7 +6,7 @@ package eu.komars.forgescanner.battle
  * independent second opinion to ML Kit, which confuses this font's 0/o, 1/l and 3/5/8.
  * It only answers when every digit is clearly closer to one template than to any other digit.
  */
-internal object GameDigitFont {
+object GameDigitFont {
  const val W=10
  const val H=14
  data class Glyph(val aspect:Double,val bits:String)
@@ -15,8 +15,12 @@ internal object GameDigitFont {
 
  private fun white(c:Int)=minOf(c ushr 16 and 255,c ushr 8 and 255,c and 255)>=205
 
- /** Digits after the last "." of a "Poz. N" label, or null when the label structure is not found. */
- fun segment(w:Int,h:Int,p:IntArray):List<Glyph>? {
+ /**
+  * Prefixed mode: digits after the last "." of a "Poz. N" label. Counter mode (prefixed=false): the
+  * rightmost run of adjacent digits on the text line, e.g. "9383" beside the anvil icon; thousands
+  * separators are too small to be letters and are skipped. Null when the structure is not found.
+  */
+ fun segment(w:Int,h:Int,p:IntArray,prefixed:Boolean=true):List<Glyph>? {
   if(w<8||h<6||p.size!=w*h)return null
   val ink=BooleanArray(p.size){white(p[it])}
   val visited=BooleanArray(p.size);val queue=IntArray(p.size);val parts=mutableListOf<Part>()
@@ -28,17 +32,23 @@ internal object GameDigitFont {
    }
    if(tail>=3)parts+=Part(l,t,r+1,b+1,tail)
   }
-  if(parts.size<3)return null
+  if(parts.size<(if(prefixed)3 else 1))return null
   // The tallest glyphs (P and digits) define the text line; letters share its baseline.
   val tall=parts.filter {it.h>=3}.sortedByDescending {it.h}
-  val height=tall.take(3).minOfOrNull {it.h}?:return null
+  val height=tall.take(if(prefixed)3 else 2).minOfOrNull {it.h}?:return null
   if(height<5)return null
   val baseline=tall.filter {it.h>=height*.8}.map {it.b}.sorted().let {it[it.size/2]}
   val letters=parts.filter {it.h>=height*.55&&it.h<=height*1.4&&kotlin.math.abs(it.b-baseline)<=height*.25}.sortedBy {it.l}
-  val dots=parts.filter {it.h<=height*.42&&it.w<=height*.5&&kotlin.math.abs(it.b-baseline)<=height*.25}
-  val dot=dots.filter {d->letters.count {it.r<=d.l+1}>=2&&letters.count {it.l>=d.r-1} in 1..3}.maxByOrNull {it.l}?:return null
-  val digits=letters.filter {it.l>=dot.r-1}
-  if(digits.size !in 1..3)return null
+  val digits=if(prefixed) {
+   val dots=parts.filter {it.h<=height*.42&&it.w<=height*.5&&kotlin.math.abs(it.b-baseline)<=height*.25}
+   val dot=dots.filter {d->letters.count {it.r<=d.l+1}>=2&&letters.count {it.l>=d.r-1} in 1..3}.maxByOrNull {it.l}?:return null
+   letters.filter {it.l>=dot.r-1}.also {if(it.size !in 1..3)return null}
+  } else {
+   // Walk left from the rightmost letter while letters stay adjacent (gap below 0.6 × height).
+   val run=mutableListOf(letters.lastOrNull()?:return null)
+   for(letter in letters.dropLast(1).asReversed()){if(run.first().l-letter.r<=height*.6)run.add(0,letter) else break}
+   run.takeIf {it.size in 1..7}?:return null
+  }
   // Digits are adjacent: a large gap means another label or artwork.
   for((a,b) in digits.zipWithNext())if(b.l-a.r>height*.6)return null
   return digits.map {d ->
@@ -69,6 +79,17 @@ internal object GameDigitFont {
   return digits.fold(0){n,d->n*10+d}.takeIf {it in 1..999}
  }
  fun read(w:Int,h:Int,p:IntArray,samples:List<Sample>)=read(segment(w,h,p),samples)
+ /** Plain counter such as "9383"; up to seven digits, leading zeros rejected. */
+ fun readCounter(w:Int,h:Int,p:IntArray,samples:List<Sample>):Long? {
+  val glyphs=segment(w,h,p,prefixed=false)?:return null
+  if(samples.isEmpty())return null
+  // The resource icon touching the number (e.g. the anvil hammer) is skipped only at the start.
+  val classified=glyphs.map {classify(it,samples)}.dropWhile {it==null}
+  if(classified.isEmpty()||classified.any {it==null})return null
+  val digits=classified.map {it!!}
+  if(digits.size>1&&digits.first()==0)return null
+  return digits.fold(0L){n,d->n*10+d}
+ }
  /** Training examples from a label whose value was confirmed independently. */
  fun learn(w:Int,h:Int,p:IntArray,value:Int):List<Sample> {
   val glyphs=segment(w,h,p)?:return emptyList()
