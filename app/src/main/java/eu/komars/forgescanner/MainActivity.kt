@@ -39,7 +39,7 @@ import eu.komars.forgescanner.model.ScanStep
 
 /** A permission-first launcher. Resource editing is a separate, explicitly opened screen. */
 class MainActivity : Activity() {
-    private enum class Screen { PERMISSION, HOME, RESULTS }
+    private enum class Screen { PERMISSION, HOME, RESULTS, OPTIONS, HELP }
 
     private val scanner: ScannerApplication get() = application as ScannerApplication
     private val fields = linkedMapOf<ResourceField, EditText>()
@@ -48,6 +48,7 @@ class MainActivity : Activity() {
     private val dirtyFields = mutableSetOf<ResourceField>()
     private lateinit var scroll: ScrollView
     private var startButton: Button? = null
+    private var manualStartButton: Button? = null
     private var captureStatus: TextView? = null
     private var currentScreen: Screen? = null
     private var requestedScreen = Screen.HOME
@@ -61,7 +62,7 @@ class MainActivity : Activity() {
         renderCaptureState(state, detail)
         if (state == CaptureState.READY && openGameWhenReady) {
             openGameWhenReady = false
-            scanner.overlay.show()
+            scanner.showScannerOverlay()
             openForgeMaster()
         }
     }
@@ -72,10 +73,15 @@ class MainActivity : Activity() {
         window.navigationBarColor = BACKGROUND
         restoreDraft(savedInstanceState)
         if (intent.getBooleanExtra("home", false)) { requestedScreen = Screen.HOME; intent.removeExtra("home") }
+        if(intent.getBooleanExtra("options",false)) { requestedScreen=Screen.OPTIONS;intent.removeExtra("options") }
         consumeReviewIntent()
         renderScreen()
     }
 
+    override fun onDestroy() {
+        if (isFinishing && !isChangingConfigurations) scanner.closeScanner()
+        super.onDestroy()
+    }
     override fun onStart() {
         super.onStart()
         CaptureConnection.addStateListener(stateListener)
@@ -104,6 +110,7 @@ class MainActivity : Activity() {
         rememberDraft()
         outState.putLong("sessionStart", scanner.session.snapshot().startedAtMillis)
         outState.putBoolean("results", requestedScreen == Screen.RESULTS)
+        outState.putString("screen", requestedScreen.name)
         outState.putBoolean("permissionFlowPending", permissionFlowPending)
         outState.putBoolean("openGameWhenReady", openGameWhenReady)
         drafts.forEach { (field, value) -> outState.putString("draft_${field.name}", value) }
@@ -112,10 +119,20 @@ class MainActivity : Activity() {
 
     @Deprecated("Native Activity back navigation is sufficient for this small application.")
     override fun onBackPressed() {
-        if (currentScreen == Screen.RESULTS) showHome() else super.onBackPressed()
+        when (currentScreen) {
+            Screen.HELP -> showOptions()
+            Screen.OPTIONS, Screen.RESULTS -> showHome()
+            else -> super.onBackPressed()
+        }
     }
 
     private fun renderScreen() {
+        // Review never needs screen capture. Preserve readings and pairing, but release
+        // projection, gestures and both overlays even when review is opened/restored directly.
+        if (requestedScreen == Screen.RESULTS) {
+            openGameWhenReady = false
+            scanner.closeScanner()
+        }
         val sessionStart = scanner.session.snapshot().startedAtMillis
         if (renderedSessionStart != 0L && renderedSessionStart != sessionStart) {
             drafts.clear()
@@ -125,12 +142,14 @@ class MainActivity : Activity() {
             currentScreen = null
         }
         renderedSessionStart = sessionStart
-        val desired = if (Settings.canDrawOverlays(this)) requestedScreen else Screen.PERMISSION
+        val needsOverlay = requestedScreen == Screen.HOME || (requestedScreen == Screen.RESULTS && !scanner.demo)
+        val desired = if (needsOverlay && !Settings.canDrawOverlays(this)) Screen.PERMISSION else requestedScreen
         if (currentScreen != desired) {
             rememberDraft()
             fields.clear()
             fieldNotes.clear()
             startButton = null
+            manualStartButton = null
             captureStatus = null
             currentScreen = desired
             val content = createPage()
@@ -138,6 +157,8 @@ class MainActivity : Activity() {
                 Screen.PERMISSION -> buildPermissionScreen(content)
                 Screen.HOME -> buildHomeScreen(content)
                 Screen.RESULTS -> buildResultsScreen(content)
+                Screen.OPTIONS -> buildOptionsScreen(content)
+                Screen.HELP -> buildHelpScreen(content)
             }
         }
         renderSnapshot()
@@ -166,16 +187,16 @@ class MainActivity : Activity() {
 
     private fun buildPermissionScreen(content: LinearLayout) {
         content.addView(android.widget.ImageView(this).apply {
-            setImageResource(eu.komars.forgescanner.R.mipmap.ic_launcher)
+            setImageResource(eu.komars.forgescanner.R.drawable.menu_resources)
             contentDescription = "Botysław Skaner"
         }, LinearLayout.LayoutParams(dp(76), dp(76)).apply { bottomMargin = dp(18) })
-        content.addView(text("Botysław Skaner", 28, FOREGROUND, bold = true))
-        content.addView(action(if (scanner.demo) "Wyłącz tryb demonstracyjny" else "Tryb demonstracyjny", 0x00f10015, quiet = true) { toggleDemo() }.withTop(10))
+        content.addView(text("Skaner zasobów", 28, FOREGROUND, bold = true))
         addConnectionCard(content)
         content.addView(text("Najpierw zezwól na wyświetlanie małego przycisku nad grą.", 16, MUTED).withTop(16))
         content.addView(action("Zezwól na wyświetlanie nad aplikacjami", ID_ALLOW_OVERLAY, primary = true) {
             openOverlayPermission()
         }.withTop(28))
+        content.addView(action("Opcje", ID_OPTIONS, quiet = true) { showOptions() }.withTop(14))
     }
 
     private fun addConnectionCard(content: LinearLayout) {
@@ -187,30 +208,33 @@ class MainActivity : Activity() {
 
     private fun buildHomeScreen(content: LinearLayout) {
         content.addView(android.widget.ImageView(this).apply {
-            setImageResource(eu.komars.forgescanner.R.mipmap.ic_launcher)
+            setImageResource(eu.komars.forgescanner.R.drawable.menu_resources)
             contentDescription = "Botysław Skaner"
         }, LinearLayout.LayoutParams(dp(76), dp(76)).apply { bottomMargin = dp(18) })
-        content.addView(text("Botysław Skaner", 28, FOREGROUND, bold = true))
-        content.addView(action(if (scanner.demo) "Wyłącz tryb demonstracyjny" else "Tryb demonstracyjny", 0x00f10015, quiet = true) { toggleDemo() }.withTop(10))
-        addConnectionCard(content)
-        content.addView(text("W grze naciśnij Skanuj. Nakładka podpowie, co pokazać.", 16, MUTED).withTop(14))
-        startButton = action("Uruchom nakładkę", ID_START_OVERLAY, primary = true) { startPermissionFlow() }
+        content.addView(text("Skaner zasobów", 28, FOREGROUND, bold = true))
+        content.addView(text("Zatwierdź pola przy pierwszej konfiguracji. Kolejne skany korzystają z zapisanych ustawień.", 16, MUTED).withTop(14))
+        content.addView(text("Odczyt ekranu gry", 15, FOREGROUND, bold = true).withTop(22))
+        content.addView(text("Po uruchomieniu i zgodzie Androida skaner odczytuje wybrany ekran, aby policzyć zasoby. Wybierz wyłącznie grę. Obrazy są analizowane na telefonie i nie trafiają do serwera. Odczyt zakończysz krzyżykiem nakładki lub w powiadomieniu Androida. Do bota wysyłasz tylko sprawdzone liczby przyciskiem Wyślij.", 13, MUTED).apply { id = ID_CAPTURE_DISCLOSURE }.withTop(7))
+        startButton = action("Automatyczny odczyt", ID_START_AUTOMATIC, primary = true) { startAutomaticMode() }
         content.addView(startButton!!.withTop(28))
+        manualStartButton = action("Manualny odczyt", ID_START_OVERLAY) {
+            scanner.automaticMode = false
+            scanner.autoOverlay.hide()
+            startPermissionFlow()
+        }
+        content.addView(manualStartButton!!.withTop(10))
         content.addView(action("Wyniki", ID_RESULTS) { showReview() }.withTop(12))
         captureStatus = text("", 13, MUTED).withTop(14).also(content::addView)
-        content.addView(action("Opcje", ID_OPTIONS, quiet = true) { showOptions() }.withTop(14))
-        content.addView(text("Tworzone przez SirMaxeN", 12, MUTED).withTop(28))
-        content.addView(text("Tworzę aplikacje z pasji i udostępniam je całkowicie za darmo. Niestety utrzymanie serwerów i narzędzi trochę kosztuje. Jeśli doceniasz moją pracę i chcesz wesprzeć tworzenie kolejnych przydatnych rzeczy, możesz postawić mi kawę. Dzięki za każde wsparcie!", 13, MUTED).withTop(8))
-        content.addView(action("☕ Postaw mi kawę", 0x00f10010, quiet = true) {
-            runCatching { startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://buymeacoffee.com/sirmaxen"))) }
-                .onFailure { toast("Otwórz buymeacoffee.com/sirmaxen w przeglądarce") }
-        }.withTop(6))
+        content.addView(action("Menu główne", ID_OPTIONS) { startActivity(Intent(this,HomeActivity::class.java)) }.withTop(14))
+        eu.komars.forgescanner.ui.SupportFooter.add(this,content)
     }
 
     private fun buildResultsScreen(content: LinearLayout) {
-        scanner.overlay.minimize()
+        if (scanner.automaticMode) scanner.overlay.hide() else scanner.overlay.minimize()
+        scanner.autoOverlay.hide()
         content.addView(action("‹ Wróć", ID_BACK, quiet = true) { showHome() })
         content.addView(text("Sprawdź dane", 27, FOREGROUND, bold = true).withTop(18))
+        if(scanner.session.snapshot().values.isNotEmpty()) content.addView(text("Ostatni zapis: "+java.text.DateFormat.getDateTimeInstance().format(java.util.Date(scanner.session.snapshot().updatedAtMillis)),12,MUTED).withTop(6))
         if (scanner.demo) content.addView(text("DEMO — przykładowe dane, bez wysyłania do serwera", 14, ACCENT, bold = true).withTop(10))
         content.addView(text("9880 = 9,88k. Puste pole oznacza brak odczytu. Wpisz 0, jeśli nic nie masz.", 13, MUTED).withTop(10))
         ResourceField.entries.forEach { addResourceField(content, it) }
@@ -258,38 +282,63 @@ class MainActivity : Activity() {
     }
 
     private fun showOptions() {
-        AlertDialog.Builder(this)
-            .setTitle("Opcje")
-            .setItems(arrayOf("Zatrzymaj nakładkę", "Nowe skanowanie", "Usuń zapisane ustawienia odczytu", "Połącz z Discordem", "Odłącz telefon lokalnie", "Usuń dane aplikacji", "Sprawdź aktualizacje", "Polityka prywatności")) { _, index ->
-                when (index) {
-                    0 -> {
-                        openGameWhenReady = false
-                        CaptureConnection.stop()
-                        scanner.overlay.hide()
-                        renderCaptureState(CaptureConnection.state, CaptureConnection.detail)
-                    }
-                    1 -> confirmNewScan()
-                    2 -> confirmClearCalibration()
-                    3 -> pairPhone()
-                    4 -> { scanner.mobile.disconnect(); refreshConnectionScreen(); toast("Usunięto połączenie z telefonu. Dostęp możesz też cofnąć przez /mobile revoke.") }
-                    5 -> confirmEraseApplicationData()
-                    6 -> startActivity(Intent(this, eu.komars.forgescanner.update.UpdateActivity::class.java).putExtra("manual", true))
-                    7 -> runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://komars.eu/botyslaw-skaner/privacy.html"))) }.onFailure { toast("Otwórz komars.eu/botyslaw-skaner/privacy.html") }
-                }
-            }
-            .setNegativeButton("Zamknij", null)
-            .show()
+        rememberDraft()
+        requestedScreen = Screen.OPTIONS
+        renderScreen()
+    }
+
+    private fun buildOptionsScreen(content: LinearLayout) {
+        content.addView(action("‹ Wróć", ID_BACK, quiet = true) { showHome() })
+        content.addView(text("Opcje", 27, FOREGROUND, bold = true).withTop(18))
+        content.addView(action("Pomoc — jak używać skanera", ID_HELP) {
+            requestedScreen = Screen.HELP; renderScreen()
+        }.withTop(18))
+        content.addView(action(if (scanner.demo) "Wyłącz tryb demonstracyjny" else "Tryb demonstracyjny", ID_DEMO) { toggleDemo() }.withTop(12))
+        content.addView(text("Przykładowe wyniki i symulowane połączenie z Discordem. Dane demo pozostają na telefonie. Wyłączenie demo przywraca Twoje wcześniejsze wyniki i połączenie.", 13, MUTED).withTop(7))
+        content.addView(action("Automatyczny odczyt", 0x00f10031) { startAutomaticMode() }.withTop(18))
+        content.addView(action("Połącz z Discordem", 0x00f10011) { pairPhone() }.withTop(20))
+        content.addView(action("Odłącz telefon lokalnie", 0x00f10018, quiet = true) {
+            scanner.mobile.disconnect(); refreshConnectionScreen()
+            toast("Usunięto połączenie z telefonu. Dostęp możesz też cofnąć przez /mobile revoke.")
+        }.withTop(10))
+        content.addView(action("Sprawdź aktualizacje", 0x00f10019) {
+            startActivity(Intent(this, eu.komars.forgescanner.update.UpdateActivity::class.java).putExtra("manual", true))
+        }.withTop(20))
+        content.addView(action("Zatrzymaj nakładkę", 0x00f1001a, quiet = true) {
+            openGameWhenReady = false; scanner.closeScanner(); showHome()
+            toast("Nakładka zatrzymana.")
+        }.withTop(10))
+        content.addView(action("Nowe skanowanie", ID_RESET, quiet = true) { confirmNewScan() }.withTop(10))
+        content.addView(action("Usuń zapisane ustawienia odczytu", 0x00f1001b, quiet = true) { confirmClearCalibration() }.withTop(10))
+        content.addView(action("Usuń dane aplikacji", 0x00f1001c, quiet = true) { confirmEraseApplicationData() }.withTop(10))
+        content.addView(action("Polityka prywatności", 0x00f1001d, quiet = true) {
+            runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://komars.eu/botyslaw-skaner/privacy.html"))) }
+                .onFailure { toast("Otwórz komars.eu/botyslaw-skaner/privacy.html") }
+        }.withTop(20))
+    }
+
+    private fun buildHelpScreen(content: LinearLayout) {
+        content.addView(action("‹ Opcje", ID_BACK, quiet = true) { showOptions() })
+        content.addView(text("Pomoc", 27, FOREGROUND, bold = true).withTop(18))
+        fun section(title: String, body: String) {
+            content.addView(text(title, 17, FOREGROUND, bold = true).withTop(22))
+            content.addView(text(body, 14, MUTED).withTop(7))
+        }
+        section("1. Automatyczny odczyt", "Zezwól na wyświetlanie nad grą. Na ekranie głównym wybierz Automatyczny odczyt. Za pierwszym razem zaakceptuj zgodę na sterowanie gestami i włącz usługę w ustawieniach Androida. W oknie udostępniania ekranu wybierz wyłącznie Forge Master. Zgoda systemowa jest potrzebna przy każdym nowym uruchomieniu odczytu.")
+        section("2. Zatwierdź ustawienia", "Podczas konfiguracji skaner proponuje miejsca liczników i przycisków. Każde pole zobaczysz na ekranie: zatwierdź je lub popraw zaznaczenie. Listy wierzchowców oraz zwierzaków/jajek zaznaczasz ręcznie. Zapisane obszary i miejsca kliknięć służą do kolejnych skanów; poprawa jednego pola nie powtarza całej konfiguracji. Liczniki zaznaczaj razem z ikoną i całym paskiem, zostawiając zapas na większą liczbę; dla młotków wybierz dolny pasek kowadła.")
+        section("3. Skanuj z zapisanych pól", "Zacznij na ekranie młotków i naciśnij Skanuj. Skaner korzysta z zapisanych obszarów, otwiera kolejne ekrany i przewija listy. Nie dotykaj gry w czasie działania. STOP zatrzymuje sekwencję, a Zakończ listę pozwala zakończyć liczenie ręcznie. Sprawdź wyniki przed wysłaniem.")
+        section("Manualny odczyt", "To dotychczasowa nakładka z ręcznym przechodzeniem między ekranami. Wybierz Manualny odczyt, pokaż ekran wskazany w nakładce i naciśnij Ustaw, aby zaznaczyć licznik lub listę. Klucze i koszt oraz bilety i koszt x5 mają po dwa obszary. Po ustawieniu możesz używać Skanuj. Listę przewijaj od góry do dołu, obserwując licznik i podpowiedzi; na końcu przytrzymaj ją nieruchomo albo zakończ ręcznie. Ten tryb nie wymaga usługi sterowania gestami.")
+        section("4. Sprawdź i wyślij", "W Wynikach sprawdź wszystkie 7 pól, w tym ostatni rząd listy i wartości oznaczone jako estymacja. Baza to 1 wierzchowiec lub 3 zwierzaki — odejmij je tylko wtedy, gdy są na zeskanowanej liście. Skopiuj komendę przygotowuje /import do Discorda. Wyślij dane do bota aktualizuje połączone konto. Aby połączyć konto, użyj Połącz z Discordem i kodu z /mobile pair. Skanowanie działa też bez parowania.")
+        section("Sterowanie", "Przeciągnij nakładkę, aby ją przesunąć. Menu otwiera dodatkowe czynności, krzyżyk kończy odczyt. Wróć do aplikacji skanera pozwala wrócić do wyników. Opcje zawierają reset, zmianę ustawień i sprawdzanie aktualizacji.")
+        section("Tryb demonstracyjny", "W Opcjach włączysz przykładowe wyniki. Parowanie i wysyłanie są symulowane lokalnie; dane demo nie trafiają do prawdziwego klanu. Tryb nie wymaga konta Discord ani zgody na nakładkę. Wyłączysz go również w Opcjach.")
+        section("Prywatność", "Skaner analizuje ekran na telefonie. Nie wysyła nagrań ani obrazów. Synchronizacja przekazuje tylko sprawdzone liczby. Odczyt możesz zawsze zatrzymać krzyżykiem lub w powiadomieniu Androida.")
     }
 
     private fun toggleDemo() {
-        AlertDialog.Builder(this).setTitle(if (scanner.demo) "Wyłączyć DEMO?" else "Tryb demonstracyjny")
-            .setMessage(if (scanner.demo) "Przywrócimy poprzednie wyniki i prawdziwe połączenie z botem." else "Wczytamy przykładowe zasoby. Parowanie i wysyłka będą symulowane wyłącznie na telefonie. Żadne dane DEMO nie trafią do serwera ani Discorda. Twoje prawdziwe połączenie pozostanie zapisane.")
-            .setPositiveButton(if (scanner.demo) "Wyłącz DEMO" else "Włącz DEMO") { _, _ ->
-                scanner.setDemo(!scanner.demo)
-                drafts.clear(); dirtyFields.clear(); fields.clear(); fieldNotes.clear()
-                currentScreen = null; requestedScreen = if (scanner.demo) Screen.RESULTS else Screen.HOME
-                renderScreen()
-            }.setNegativeButton("Anuluj", null).show()
+        scanner.setDemo(!scanner.demo)
+        drafts.clear(); dirtyFields.clear(); fields.clear(); fieldNotes.clear()
+        currentScreen = null; requestedScreen = if (scanner.demo) Screen.RESULTS else Screen.OPTIONS
+        renderScreen()
     }
 
     private fun refreshConnectionScreen() {
@@ -320,6 +369,31 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun startAutomaticMode() {
+        if (scanner.demo) { toast("Wyłącz DEMO przed skanowaniem gry."); return }
+        val preferences = getSharedPreferences("automation_consent_v1", MODE_PRIVATE)
+        val gestures = eu.komars.forgescanner.automation.GestureConnection
+        if (!preferences.getBoolean("disclosed", false) || !gestures.isConnected) {
+            AlertDialog.Builder(this).setTitle("Opcjonalne sterowanie gestami")
+                .setMessage("Automatyczny skan używa usługi dostępności do naciskania wskazanych przez Ciebie przycisków nawigacji i przewijania list w Forge Master. Rozpoznaje aktywną aplikację, aby zatrzymać gesty po wyjściu z gry. Nie pobiera treści okien przez dostępność; obraz gry analizuje lokalnie po osobnej zgodzie na odczyt ekranu. Nie wysyła obrazów ani nie wykonuje przyzywania, łączenia lub zakupów. Każdy skan uruchamiasz przyciskiem; STOP zatrzymuje sekwencję po bieżącym krótkim geście. Po akceptacji włącz usługę Botysław: automatyczny skan w ustawieniach, wróć tutaj i uruchom ten tryb ponownie. Manualny odczyt działa bez tej zgody.")
+                .setPositiveButton("Zgadzam się — ustawienia") { _, _ ->
+                    preferences.edit().putBoolean("disclosed", true).apply()
+                    val details = Intent("android.settings.ACCESSIBILITY_DETAILS_SETTINGS")
+                        .putExtra(Intent.EXTRA_COMPONENT_NAME, android.content.ComponentName(this, eu.komars.forgescanner.automation.GestureAccessService::class.java).flattenToString())
+                    try { startActivity(details) }
+                    catch (_: Exception) {
+                        val component = android.content.ComponentName(this, eu.komars.forgescanner.automation.GestureAccessService::class.java).flattenToString()
+                        startActivity(gestures.settingsIntent().putExtra(":settings:fragment_args_key", component)
+                            .putExtra(":settings:show_fragment_args", Bundle().apply { putString(":settings:fragment_args_key", component) }))
+                        toast("Wybierz Botysław: automatyczny skan w zainstalowanych aplikacjach.")
+                    }
+                }.setNegativeButton("Nie teraz", null).show()
+            return
+        }
+        scanner.overlay.hide(); scanner.automaticMode = true
+        startPermissionFlow()
+    }
+
     private fun startPermissionFlow() {
         if (!Settings.canDrawOverlays(this)) {
             requestedScreen = Screen.HOME
@@ -328,7 +402,7 @@ class MainActivity : Activity() {
         }
         if (CaptureConnection.state == CaptureState.READY) {
             scanner.prepareOverlaySession()
-            scanner.overlay.show()
+            scanner.showScannerOverlay()
             openForgeMaster()
             return
         }
@@ -342,10 +416,9 @@ class MainActivity : Activity() {
     private fun requestProjectionConsent() {
         if (!permissionFlowPending) return
         permissionFlowPending = false
-        AlertDialog.Builder(this).setTitle("Odczyt ekranu gry")
-            .setMessage("Po Twojej zgodzie skaner będzie odczytywał wybrany ekran, aby rozpoznawać zasoby w grze. Wybierz udostępnienie wyłącznie gry. Obrazy analizujemy na telefonie i nie wysyłamy ich do bota. Odczyt trwa do zamknięcia nakładki lub zatrzymania go w powiadomieniu Androida. Do Discorda wyślesz tylko sprawdzone liczby po osobnym zatwierdzeniu.")
-            .setPositiveButton("Dalej") { _, _ -> launchProjectionConsent() }
-            .setNegativeButton("Anuluj", null).show()
+        // The home screen explains capture immediately before the explicit start action.
+        // Android's own consent still precedes every new capture session.
+        launchProjectionConsent()
     }
 
     private fun launchProjectionConsent() {
@@ -389,14 +462,16 @@ class MainActivity : Activity() {
     private fun openForgeMaster() {
         val launch = packageManager.getLaunchIntentForPackage(FORGE_PACKAGE)
         if (launch == null) {
-            scanner.overlay.minimize()
+            if (scanner.automaticMode) scanner.overlay.hide() else scanner.overlay.minimize()
+        scanner.autoOverlay.hide()
             showMessage("Otwórz Forge Master", "Otwórz grę ręcznie i naciśnij przycisk nakładki.")
             return
         }
         try {
             startActivity(launch)
         } catch (_: Exception) {
-            scanner.overlay.minimize()
+            if (scanner.automaticMode) scanner.overlay.hide() else scanner.overlay.minimize()
+        scanner.autoOverlay.hide()
             showMessage("Otwórz grę ręcznie", "Uruchom Forge Master ze swojego ekranu głównego.")
         }
     }
@@ -437,22 +512,22 @@ class MainActivity : Activity() {
             }
             setTextColor(if (state == CaptureState.READY) SUCCESS else MUTED)
         }
-        startButton?.apply {
-            text = if (state == CaptureState.READY) "Wróć do nakładki" else "Uruchom nakładkę"
-            isEnabled = state != CaptureState.STARTING
-        }
+        startButton?.isEnabled = state != CaptureState.STARTING
+        manualStartButton?.isEnabled = state != CaptureState.STARTING
     }
 
     private fun consumeReviewIntent() {
         if (intent?.getBooleanExtra("review", false) == true) {
             intent.removeExtra("review")
-            scanner.overlay.minimize()
+            if (scanner.automaticMode) scanner.overlay.hide() else scanner.overlay.minimize()
+        scanner.autoOverlay.hide()
             requestedScreen = Screen.RESULTS
         }
     }
 
     private fun showReview() {
-        scanner.overlay.minimize()
+        if (scanner.automaticMode) scanner.overlay.hide() else scanner.overlay.minimize()
+        scanner.autoOverlay.hide()
         requestedScreen = Screen.RESULTS
         renderScreen()
     }
@@ -557,7 +632,8 @@ class MainActivity : Activity() {
         scanner.mobile.send(values) { result ->
             syncBusy = false
             if (result.isSuccess && scanner.session.snapshot().startedAtMillis == sessionStart) {
-                CaptureConnection.stop(); scanner.overlay.hide()
+                if(!scanner.demo) eu.komars.forgescanner.model.ConfirmedCostMemory(this).remember(scanner.mobile.name.orEmpty(),values)
+                scanner.closeScanner(); showHome()
             }
             if (!isFinishing && !isDestroyed) {
                 showMessage("Aktualizacja danych", result.getOrElse { "Nie wysłano: ${it.message}" })
@@ -619,9 +695,10 @@ class MainActivity : Activity() {
     private fun confirmClearCalibration() {
         AlertDialog.Builder(this)
             .setTitle("Usunąć ustawienia odczytu?")
-            .setMessage("Przy kolejnym odczycie ponownie zaznaczysz miejsca liczników i list. Wyniki pozostaną.")
+            .setMessage("Przy kolejnym odczycie ponownie zatwierdzisz pola i miejsca kliknięć oraz zaznaczysz listy. Wyniki i połączenie z Discordem pozostaną.")
             .setPositiveButton("Usuń ustawienia") { _, _ ->
                 scanner.calibrations.clear()
+                scanner.autoOverlay.clearSettings()
                 scanner.overlay.resetSession()
                 toast("Ustawienia odczytu usunięte.")
             }
@@ -638,6 +715,7 @@ class MainActivity : Activity() {
     private fun restoreDraft(saved: Bundle?) {
         saved ?: return
         if (saved.getBoolean("results")) requestedScreen = Screen.RESULTS
+        saved.getString("screen")?.let { name -> Screen.entries.firstOrNull { it.name == name }?.let { requestedScreen = it } }
         permissionFlowPending = saved.getBoolean("permissionFlowPending")
         openGameWhenReady = saved.getBoolean("openGameWhenReady")
         if (saved.getLong("sessionStart") != scanner.session.snapshot().startedAtMillis) return
@@ -693,6 +771,7 @@ class MainActivity : Activity() {
     companion object {
         const val ID_ALLOW_OVERLAY = 0x00f10001
         const val ID_START_OVERLAY = 0x00f10002
+        const val ID_START_AUTOMATIC = 0x00f10030
         const val ID_RESULTS = 0x00f10003
         const val ID_OPTIONS = 0x00f10004
         const val ID_COPY = 0x00f10005
@@ -700,18 +779,21 @@ class MainActivity : Activity() {
         const val ID_RESET = 0x00f10009
         const val ID_BACK = 0x00f10006
         const val ID_DEFAULT_COSTS = 0x00f10007
+        const val ID_DEMO = 0x00f10015
+        const val ID_HELP = 0x00f10016
+        const val ID_CAPTURE_DISCLOSURE = 0x00f10017
         const val FIELD_ID_BASE = 0x00f10100
         private const val FORGE_PACKAGE = "com.hariwn.legendofcivilizations"
         private const val REQUEST_OVERLAY = 101
         private const val REQUEST_NOTIFICATIONS = 102
         private const val REQUEST_PROJECTION = 103
-        private val BACKGROUND = Color.rgb(11, 17, 29)
-        private val INPUT_BACKGROUND = Color.rgb(18, 28, 45)
-        private val BORDER = Color.rgb(43, 58, 80)
-        private val FOREGROUND = Color.rgb(237, 242, 251)
-        private val MUTED = Color.rgb(158, 176, 200)
-        private val ACCENT = Color.rgb(114, 216, 181)
-        private val PRIMARY = Color.rgb(26, 107, 92)
+        private val BACKGROUND = eu.komars.forgescanner.ui.ScannerAppearance.BACKGROUND
+        private val INPUT_BACKGROUND = eu.komars.forgescanner.ui.ScannerAppearance.INPUT_BACKGROUND
+        private val BORDER = eu.komars.forgescanner.ui.ScannerAppearance.BORDER
+        private val FOREGROUND = eu.komars.forgescanner.ui.ScannerAppearance.FOREGROUND
+        private val MUTED = eu.komars.forgescanner.ui.ScannerAppearance.MUTED
+        private val ACCENT = eu.komars.forgescanner.ui.ScannerAppearance.ACCENT
+        private val PRIMARY = eu.komars.forgescanner.ui.ScannerAppearance.PRIMARY
         private val SUCCESS = Color.rgb(112, 221, 171)
     }
 }

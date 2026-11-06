@@ -13,6 +13,8 @@ class LiveInventoryCounter(private val columns: Int, private val rowHeight: Int)
     private var offset = 0.0
     private var velocity = 0.0
     val count: Long get() = rows.count
+    var guidance: ScrollGuidance = ScrollGuidance.SCROLL
+        private set
 
     fun observe(frame: GrayScrollFrame) {
         val old = previous
@@ -23,6 +25,7 @@ class LiveInventoryCounter(private val columns: Int, private val rowHeight: Int)
                     velocity = 0.0
                     previous = frame
                 }
+                guidance = ScrollGuidance.SCROLL
                 rows.observe(frame, offset)
                 return
             }
@@ -36,10 +39,17 @@ class LiveInventoryCounter(private val columns: Int, private val rowHeight: Int)
             if (shift != null) {
                 val nextOffset = max(0.0, anchorOffset+shift.pixels)
                 val change = nextOffset-offset
+                guidance = when {
+                    frame.timestampNanos > old.timestampNanos && dt > .080 -> ScrollGuidance.PAUSE
+                    abs(change) >= rowHeight * .36 -> ScrollGuidance.PAUSE
+                    abs(change) >= rowHeight * .18 -> ScrollGuidance.SLOW
+                    else -> ScrollGuidance.SCROLL
+                }
                 velocity = if (abs(change) < .03) 0.0 else velocity*.5+change/dt*.5
                 offset = nextOffset
                 if (abs(shift.pixels) >= rowHeight * .40) { anchor = frame; anchorOffset = offset }
             } else {
+                guidance = ScrollGuidance.PAUSE
                 // A provisional miss must not keep an increasingly stale reference.
                 anchor = frame; anchorOffset = offset
             }

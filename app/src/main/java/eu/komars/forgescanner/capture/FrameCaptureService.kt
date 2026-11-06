@@ -40,15 +40,19 @@ class FrameCaptureService : Service() {
     private var virtualDisplay: VirtualDisplay? = null
     private var imageReader: ImageReader? = null
     private var latestImage: Image? = null
+    private var latestImageFrameId = 0L
+    private var latestImageTimestampNanos = 0L
+    private val grayRegionCache = GrayRegionFrameCache()
     private var width = 0
     private var height = 0
     private var density = 0
     private var acceptedStart = false
     private var closed = false
     private var capturedContentVisible = true
+    private var capturedContentWasVisible = false
     private var frameRequest: PendingFrame? = null
 
-    private data class PendingFrame(val callback: FrameCallback)
+    private data class PendingFrame(val callback: FrameCallback, val newerThan: Long? = null)
 
     private val projectionCallback = object : MediaProjection.Callback() {
         override fun onStop() {
@@ -67,9 +71,12 @@ class FrameCaptureService : Service() {
 
         override fun onCapturedContentVisibilityChanged(isVisible: Boolean) {
             capturedContentVisible = isVisible
+            if (isVisible) capturedContentWasVisible = true
+            else if (capturedContentWasVisible) { finishSession(null); return }
             if (!isVisible) {
                 latestImage?.close()
                 latestImage = null
+                grayRegionCache.clear()
                 cancelPending("Wybrana aplikacja nie jest widoczna. Otwórz grę i ponów odczyt.")
             }
         }
@@ -144,7 +151,7 @@ class FrameCaptureService : Service() {
     }
 
     /** Called by CaptureConnection; pixels are copied only for this explicit request. */
-    internal fun requestFrame(callback: FrameCallback) {
+    internal fun requestFrame(callback: FrameCallback, freshOnly: Boolean = false) {
         worker.post {
             val reader = imageReader
             if (closed || reader == null || virtualDisplay == null) {
@@ -165,18 +172,23 @@ class FrameCaptureService : Service() {
                 deliver(callback, null, "Ekran zmienił rozmiar. Spróbuj odczytu ponownie.")
                 return@post
             }
-            val pending = PendingFrame(callback)
+            val pending = PendingFrame(callback, if (freshOnly) latestImage?.timestamp ?: -1L else null)
             frameRequest = pending
-            latestImage?.let { current ->
-                completePendingFrame(current)
-                return@post
-            }
+            latestImage?.let(::completePendingFrame)
+            if (frameRequest !== pending) return@post
             worker.postDelayed({
                 if (frameRequest === pending) {
                     frameRequest = null
                     deliver(callback, null, "Brak nowej klatki. Otwórz ekran gry i spróbuj ponownie.")
                 }
             }, FRAME_TIMEOUT_MS)
+        }
+    }
+
+    /** A cancelled prefetch must not occupy the next reader's single pending slot. */
+    internal fun cancelFrameRequest(callback: FrameCallback) {
+        worker.post {
+            if (frameRequest?.callback === callback) frameRequest = null
         }
     }
 
@@ -193,10 +205,15 @@ class FrameCaptureService : Service() {
                 val crop = image.cropRect
                 check(crop.width() == expectedWidth && crop.height() == expectedHeight) { "Ekran zmienił rozmiar. Ustaw obszar ponownie." }
                 val plane = image.planes.first()
-                frame = GrayScrollFrame(outputWidth, outputHeight,
+                val source = GrayRegionFrameCache.Source(latestImageFrameId, latestImageTimestampNanos,
+                    image.width, image.height, crop.left, crop.top, crop.width(), crop.height())
+                val request = GrayRegionFrameCache.Region(region.left, region.top, region.width(), region.height(),
+                    outputWidth, outputHeight)
+                frame = grayRegionCache.read(source, request) {
                     RgbaPlaneConverter.readGrayRegion(plane.buffer.duplicate(), image.width, image.height,
                         plane.rowStride, plane.pixelStride, crop.left + region.left, crop.top + region.top,
-                        region.width(), region.height(), outputWidth, outputHeight), android.os.SystemClock.elapsedRealtimeNanos())
+                        region.width(), region.height(), outputWidth, outputHeight)
+                }
             } catch (problem: Exception) { error = problem.message ?: "Nie udało się odczytać listy." }
             mainHandler.post { callback(frame, error) }
         }
@@ -247,10 +264,17 @@ class FrameCaptureService : Service() {
         }
         latestImage?.close()
         latestImage = newest
+        latestImageFrameId++
+        grayRegionCache.clear()
+        // Preserve real source timing even when a polling request reuses this image.
+        // Some producers leave the timestamp unset; stamp acquisition once, not each read.
+        latestImageTimestampNanos = newest.timestamp.takeIf { it > 0L }
+            ?: android.os.SystemClock.elapsedRealtimeNanos()
     }
 
     private fun completePendingFrame(image: Image) {
         val pending = frameRequest ?: return
+        if (pending.newerThan != null && image.timestamp <= pending.newerThan) return
         frameRequest = null
         try {
             deliver(pending.callback, bitmapFromImage(image), null)
@@ -266,6 +290,7 @@ class FrameCaptureService : Service() {
         cancelPending("Ekran zmienił rozmiar. Spróbuj odczytu ponownie.")
         latestImage?.close()
         latestImage = null
+        grayRegionCache.clear()
         val oldReader = imageReader
         val replacement = newReader(newWidth, newHeight)
         try {
@@ -295,6 +320,7 @@ class FrameCaptureService : Service() {
             plane.rowStride, plane.pixelStride,
             crop.left, crop.top, crop.width(), crop.height(),
         )
+        eu.komars.forgescanner.ui.CaptureIndicator.maskPixels(pixels,crop.width(),crop.height())
         return Bitmap.createBitmap(pixels, crop.width(), crop.height(), Bitmap.Config.ARGB_8888)
     }
 
@@ -321,6 +347,7 @@ class FrameCaptureService : Service() {
     }
 
     private fun releaseCapture(stopProjection: Boolean) {
+        grayRegionCache.clear()
         runCatching { imageReader?.setOnImageAvailableListener(null, null) }
         runCatching { latestImage?.close() }
         latestImage = null
@@ -362,6 +389,14 @@ class FrameCaptureService : Service() {
             notification.setContentIntent(PendingIntent.getActivity(this, 2, launch, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
         }
         return notification.build()
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        mainHandler.post {
+            (application as? eu.komars.forgescanner.ScannerApplication)?.closeScanner()
+            stopCapture()
+        }
+        super.onTaskRemoved(rootIntent)
     }
 
     override fun onDestroy() {

@@ -40,18 +40,70 @@ import eu.komars.forgescanner.model.ScrollAnalysis
 
 /** Device smoke test using generated pixels only. It never opens or reads another application. */
 class ScannerSmokeInstrumentation : Instrumentation() {
+    private var fairyGlyphFixture = false
+    private var memberCloseFixture = false
+    private var gestureStrokeOnly = false
+    private var resumePhase:String?=null
+    private var warResumeOnly = false
+    private var fullWarOnly = false
+    private var warChromeOnly = false
+    private var rosterFixture = false
     private var demoOnly = false
+    private var uiOnly = false
+    private var hammerExpected: Long? = null
     override fun onCreate(arguments: Bundle?) {
         super.onCreate(arguments)
+        fairyGlyphFixture = arguments?.getString("fairyGlyphFixture") == "true"
+        memberCloseFixture = arguments?.getString("memberCloseFixture") == "true"
+        gestureStrokeOnly = arguments?.getString("gestureStrokeOnly") == "true"
+        resumePhase=arguments?.getString("resumePhase")
+        warResumeOnly = arguments?.getString("warResumeOnly") == "true"
+        fullWarOnly = arguments?.getString("fullWarOnly") == "true"
+        warChromeOnly = arguments?.getString("warChromeOnly") == "true"
+        rosterFixture = arguments?.getString("rosterFixture") == "true"
         demoOnly = arguments?.getString("demoOnly") == "true"
+        uiOnly = arguments?.getString("uiOnly") == "true"
+        hammerExpected = arguments?.getString("hammerExpected")?.toLongOrNull()
         start()
     }
 
     override fun onStart() {
         val results = Bundle()
         try {
+            if(fairyGlyphFixture){results.putString("summary",verifyFairyGlyph());results.putString("status","passed");finish(Activity.RESULT_OK,results);return}
+            if(memberCloseFixture){results.putString("summary",verifyMemberClose());results.putString("status","passed");finish(Activity.RESULT_OK,results);return}
+            if(warResumeOnly){results.putString("summary",verifyWarResume());results.putString("status","passed");finish(Activity.RESULT_OK,results);return}
+            if(fullWarOnly) {
+                results.putString("summary",verifyFullWar());results.putString("status","passed")
+                finish(Activity.RESULT_OK,results);return
+            }
+            if(warChromeOnly) {
+                results.putString("summary",verifyWarChrome());results.putString("status","passed")
+                finish(Activity.RESULT_OK,results);return
+            }
+            if(gestureStrokeOnly) {
+                results.putString("summary",verifyGestureEndings());results.putString("status","passed")
+                finish(Activity.RESULT_OK,results);return
+            }
+            if(rosterFixture) {
+                results.putString("summary",verifyPrivateRoster());results.putString("status","passed")
+                finish(Activity.RESULT_OK,results);return
+            }
+            hammerExpected?.let { expected ->
+                results.putString("summary", verifyPrivateHammerFrames(expected))
+                results.putString("status", "passed"); results.putInt("checks", 3)
+                finish(Activity.RESULT_OK, results); return
+            }
             val demoSummary = verifyDemoCannotSend()
             if (demoOnly) { results.putString("status","passed");results.putString("summary",demoSummary);finish(Activity.RESULT_OK,results);return }
+            if (uiOnly) {
+                val navigation = verifyPermissionFirstNavigation()
+                val hammer = verifyHammerBurst()
+                results.putString("summary", "$demoSummary; $navigation; $hammer")
+                results.putInt("checks", 3)
+                results.putString("status", "passed")
+                finish(Activity.RESULT_OK, results); return
+            }
             val ocrSummary = verifyBundledOcr()
             val gridSummary = verifyGridPixels()
             val navigationSummary = verifyPermissionFirstNavigation()
@@ -79,6 +131,304 @@ class ScannerSmokeInstrumentation : Instrumentation() {
         }
     }
 
+    private fun verifyFairyGlyph():String {
+        val bytes=ParcelFileDescriptor.AutoCloseInputStream(uiAutomation.executeShellCommand("cat /data/local/tmp/botyslaw-fairy-three.jpg")).use {it.readBytes()}
+        val image=android.graphics.BitmapFactory.decodeByteArray(bytes,0,bytes.size)?:error("Missing fairy fixture")
+        val ocr=com.google.mlkit.vision.text.TextRecognition.getClient(com.google.mlkit.vision.text.latin.TextRecognizerOptions.DEFAULT_OPTIONS)
+        val memory=eu.komars.forgescanner.battle.FairyLevelMemory(targetContext,"instrumentation_fairy_glyphs")
+        targetContext.getSharedPreferences("instrumentation_fairy_glyphs",0).edit().clear().commit()
+        try {
+            val layout=eu.komars.forgescanner.battle.BattleFieldDetector(ocr).observe(image)
+            val q=layout.regions.getValue("fairy")
+            val three=memory.capture(image,Rect(q.left,q.top,q.right,q.bottom))?:error("No numeric fairy glyph: $q")
+            check(three.digits==1)
+            val first=layout.regions.getValue("weapon");val pitch=(first.width/.84).toInt()
+            val templates=org.json.JSONArray();val samples=mutableListOf<Pair<Int,eu.komars.forgescanner.battle.FairyLevelGlyph.Signature>>()
+            for((level,signature) in listOf(3 to three,5 to memory.capture(image,Rect(first.left+pitch,first.top,first.right+pitch,first.bottom)),8 to memory.capture(image,Rect(first.left+pitch*2,first.top,first.right+pitch*2,first.bottom)))) {
+                val glyph=signature?:error("No reference glyph for $level")
+                check(glyph.digits==1){"Reference $level has ${glyph.digits} digits"}
+                samples+=level to glyph;templates.put(JSONObject().put("level",level).put("digits",glyph.digits).put("aspect",glyph.aspect).put("bits",glyph.bits))
+            }
+            samples.forEach {(level,glyph)->check(eu.komars.forgescanner.battle.FairyLevelGlyph.match(glyph,samples)==level){"Reference confusion $level"};memory.remember(level,glyph)}
+            check(memory.recognize(three)==3)
+            val fresh=eu.komars.forgescanner.battle.FairyLevelMemory(targetContext,"instrumentation_fairy_glyphs")
+            check(fresh.recognize(three)==3)
+            val region=Rect(q.left,q.top,q.right,q.bottom);val crop=Bitmap.createBitmap(image,region.left,region.top,region.width(),region.height())
+            val doubled=Bitmap.createScaledBitmap(crop,crop.width*2,crop.height*2,false)
+            val scaled=memory.capture(doubled,Rect(0,0,doubled.width,doubled.height));check(memory.recognize(scaled)==3){"Changed screen scale lost confirmed 3"}
+            crop.recycle();doubled.recycle()
+            File(targetContext.cacheDir,"instrumentation-fairy-glyphs.json").writeText(templates.toString())
+            return "Real fairy level 3 and game-font 5/8 separated by numeric pixels; learned state survives recreation and 2x scaling; isolated memory; no game input"
+        }finally {image.recycle();ocr.close();targetContext.getSharedPreferences("instrumentation_fairy_glyphs",0).edit().clear().commit()}
+    }
+
+    private fun verifyMemberClose():String {
+        fun bytes(path:String)=ParcelFileDescriptor.AutoCloseInputStream(uiAutomation.executeShellCommand("cat $path")).use {it.readBytes()}
+        val imageBytes=bytes("/data/local/tmp/botyslaw-member-clean.png")
+        val clean=android.graphics.BitmapFactory.decodeByteArray(imageBytes,0,imageBytes.size)?:error("Missing clean member fixture")
+        val failureBytes=bytes("/data/local/tmp/botyslaw-member-failure.jpg")
+        val failure=android.graphics.BitmapFactory.decodeByteArray(failureBytes,0,failureBytes.size)?:error("Missing failure fixture")
+        val ocr=com.google.mlkit.vision.text.TextRecognition.getClient(com.google.mlkit.vision.text.latin.TextRecognizerOptions.DEFAULT_OPTIONS)
+        try {
+            val detector=eu.komars.forgescanner.battle.BattleFieldDetector(ocr)
+            check(detector.observe(clean).profile){"Clean fixture must be a real member profile"}
+            val close=eu.komars.forgescanner.vision.CloseButtonDetector().detect(clean)?:error("No clean profile X")
+            check(eu.komars.forgescanner.vision.CloseButtonDetector().detect(failure)==null){"Actual failure must reproduce the hidden X"}
+            val anchor=eu.komars.forgescanner.battle.MemberProfileAnchor("Fixture",clean.width,clean.height,eu.komars.forgescanner.model.PixelRegion(close.left,close.top,close.right,close.bottom))
+            val covered=clean.copy(Bitmap.Config.ARGB_8888,true)
+            val canvas=Canvas(covered);val paint=Paint().apply {color=Color.rgb(16,33,43)}
+            canvas.drawRect(0f,(close.top-20).coerceAtLeast(0).toFloat(),covered.width.toFloat(),covered.height.toFloat(),paint)
+            check(eu.komars.forgescanner.vision.CloseButtonDetector().detect(covered)==null){"Overlay fixture must cover X"}
+            check(anchor.closeFor("Fixture",clean.width,clean.height,true)!=null){"A completed scan can use its own observed X"}
+            check(anchor.closeFor("Other",clean.width,clean.height,true)==null&&anchor.closeFor("Fixture",clean.width,clean.height,false)==null)
+            covered.recycle()
+            return "Actual failure reproduces overlay-hidden X; clean profile supplied observed anchor; occlusion does not invalidate that completed member's return; other member/unfinished details rejected; no game input"
+        }finally {clean.recycle();failure.recycle();ocr.close()}
+    }
+
+    /** Native Android construction only: no touch is injected and no Activity/game is opened. */
+    private fun verifyGestureEndings():String {
+        var checks=0
+        for(duration in listOf(180L,360L))for(end in listOf(1041.3f,1695.5f)) {
+            val x=kotlin.math.round(540.5f);val y=kotlin.math.round(end)
+            val path=android.graphics.Path().apply {moveTo(x,1900f);lineTo(x,y)}
+            val moving=android.accessibilityservice.GestureDescription.StrokeDescription(path,0,350,true)
+            val finish=eu.komars.forgescanner.automation.HeldStrokeRelease.create(moving,x,y,duration)
+            check(!finish.willContinue()&&finish.duration==duration){"The final stroke must release the pointer"}
+            val measure=android.graphics.PathMeasure(moving.path,false);val endPoint=FloatArray(2);check(measure.getPosTan(measure.length,endPoint,null))
+            val hold=finish.path;check(android.graphics.PathMeasure(hold,false).length==0f)
+            hold.lineTo(-1f,-1f);val start=FloatArray(2);check(android.graphics.PathMeasure(hold,false).getPosTan(0f,start,null))
+            check(kotlin.math.round(endPoint[0])==kotlin.math.round(start[0])&&kotlin.math.round(endPoint[1])==kotlin.math.round(start[1])){"Continuation endpoints differ"}
+            val built=android.accessibilityservice.GestureDescription.Builder().addStroke(finish).build()
+            check(built.strokeCount==1){"Release must not add an intermediate held gesture"};checks++
+        }
+        return "$checks native Android release constructions passed (180/360 ms, same endpoints); no gestures dispatched"
+    }
+
+    private fun verifyWarResume():String {
+        val context=targetContext
+        val store=eu.komars.forgescanner.battle.FullWarStore(context,"instrumentation_resume")
+        if(resumePhase!="read")store.clear()
+        try {
+            if(resumePhase=="read") {
+                check(store.state()?.getString("target")=="SirMaxeN"&&store.state()?.getInt("own_expected")==50)
+                check(store.state()?.getString("phase")=="fairy"&&store.roster(false).single().reading.name=="SirMaxeN")
+                return "Actual process restart restored member SirMaxeN, count 50, fairy phase and roster identity from isolated durable storage"
+            }
+            val random=kotlin.random.Random(73)
+            val visual=eu.komars.forgescanner.battle.RosterVisual(IntArray(1024){random.nextInt()},IntArray(4096){random.nextInt(256)},130,2.0)
+            val registry=eu.komars.forgescanner.battle.RosterRegistry()
+            registry.addUnorderedView(listOf(eu.komars.forgescanner.battle.RosterObservation(visual,listOf(eu.komars.forgescanner.battle.RosterReading("SirMaxeN",791e6),eu.komars.forgescanner.battle.RosterReading("SirMaxeN",791e6)))),50).getOrThrow()
+            val state=JSONObject().put("target","SirMaxeN").put("own_expected",50).put("phase","profile")
+            store.checkpoint(state,registry.savedRows(),emptyList())
+            val fresh=eu.komars.forgescanner.battle.FullWarStore(context,"instrumentation_resume")
+            check(fresh.state()?.getInt("own_expected")==50&&fresh.state()?.getString("target")=="SirMaxeN")
+            val restored=eu.komars.forgescanner.battle.RosterRegistry();restored.restore(fresh.roster(false))
+            check(restored.values.single().name=="SirMaxeN"&&restored.values.single().power==791e6)
+            check(restored.savedRows().single().visual.avatar.contentEquals(visual.avatar))
+            store.checkpoint(JSONObject(state.toString()).put("phase","fairy"),emptyList(),emptyList(),false)
+            check(fresh.roster(false).size==1&&fresh.state()?.getString("phase")=="fairy")
+            val previousDate=java.time.LocalDate.now(java.time.ZoneId.of("Europe/Warsaw")).minusDays(1).toString()
+            val acrossMidnight=JSONObject(fresh.state().toString()).put("date",previousDate)
+            val db=android.database.sqlite.SQLiteDatabase.openDatabase(context.getDatabasePath("instrumentation_resume_pairs_v1.db").path,null,android.database.sqlite.SQLiteDatabase.OPEN_READWRITE)
+            try { db.execSQL("UPDATE run_state SET payload=? WHERE id=1",arrayOf(acrossMidnight.toString())) }finally {db.close()}
+            store.checkpoint(JSONObject().put("target","SirMaxeN").put("own_expected",50).put("phase","fairy"),emptyList(),emptyList(),false)
+            check(fresh.state()?.getString("date")==previousDate)
+            store.log("resume-test",JSONObject().put("target","SirMaxeN"))
+            check(java.io.File(context.cacheDir,"instrumentation_resume-events.jsonl").readText().contains("resume-test"))
+            return "Native restart restored target SirMaxeN, counter 50, roster identity/power and field phase; stage-only checkpoint kept roster; persistent log passed; isolated test namespace"
+        }finally {if(resumePhase!="write")store.clear()}
+    }
+
+    private fun verifyFullWar():String {
+        val store=eu.komars.forgescanner.battle.FullWarStore(targetContext,"instrumentation_full_war")
+        store.clear()
+        val profilePrefs=targetContext.getSharedPreferences("battle_profiles_v1",0)
+        val selfBefore=profilePrefs.getString("self",null)
+        fun draft(name:String)=JSONObject().put("name",name).put("damage","1m").put("health","10m").put("weapon","1m Obrażenia (dystans)")
+            .put("pets",3).put("mounted",true).put("bonuses",JSONObject()).put("raw","").put("fairy",JSONObject().put("present",false))
+            .put("skillScans",org.json.JSONArray().put(JSONObject().put("empty",true)).put(JSONObject().put("empty",true)).put(JSONObject().put("empty",true))).put("scannedAt",System.currentTimeMillis())
+        try {
+            val a=eu.komars.forgescanner.battle.WarMember("FixtureA",100.0);val b=eu.komars.forgescanner.battle.WarMember("FixtureB",90.0)
+            val first=draft(a.name);val accepted=eu.komars.forgescanner.battle.FullProfileCodec.accept(a.name,first)
+            check(runCatching {eu.komars.forgescanner.battle.FullProfileCodec.accept("Wrong person",first)}.isFailure)
+            val missing=JSONObject(first.toString());missing.remove("pets")
+            check(runCatching {eu.komars.forgescanner.battle.FullProfileCodec.accept(a.name,missing)}.isFailure)
+            store.save(false,"Fixture clan A",a,accepted,first,null)
+            val resumed=eu.komars.forgescanner.battle.FullWarStore(targetContext,"instrumentation_full_war")
+            check(resumed.entry(false,"Fixture clan A",a)?.optBoolean("complete")==true)
+            check(resumed.entry(true,"Fixture clan A",a)==null)
+            store.pair("native-sentinel",JSONObject().put("trials",128).put("savedAt",System.currentTimeMillis()))
+            check(resumed.pair("native-sentinel")?.getInt("trials")==128)
+            check(resumed.entry(false,"Fixture clan A",a.copy(power=101.0))==null)
+            val opponent=eu.komars.forgescanner.battle.FullProfileCodec.accept(b.name,draft(b.name))
+            resumed.save(true,"Fixture clan B",b,opponent,draft(b.name),null)
+            val engine=eu.komars.forgescanner.battle.FullWarComputation(resumed)
+            val start=SystemClock.elapsedRealtime()
+            fun run()=engine.run(listOf(a),listOf(b),{enemy,member->resumed.entry(enemy,if(enemy)"Fixture clan B"else"Fixture clan A",member)?.getJSONObject("profile")},eu.komars.forgescanner.battle.WarBonus(),eu.komars.forgescanner.battle.WarBonus(),{false},{_,_->})
+            val outcome=run();val sample=outcome.getJSONArray("matrix").getJSONObject(0)
+            check(sample.getInt("trials")==1024&&sample.getInt("wins")+sample.getInt("losses")+sample.getInt("draws")==1024)
+            val second=run().getJSONArray("matrix").getJSONObject(0)
+            check(second.getInt("wins")==sample.getInt("wins")&&second.getInt("trials")==sample.getInt("trials"))
+            check(profilePrefs.getString("self",null)==selfBefore)
+            return "Native full-war storage resume, identity/missing-data rejection, 1x1 matrix and cached recompute passed in ${SystemClock.elapsedRealtime()-start} ms; accepted self profile unchanged, no game input"
+        } finally {store.clear()}
+    }
+
+    /** Real Android layout measurements, detached from WindowManager. No activity or game input. */
+    private fun verifyWarChrome():String {
+        onMain {
+            var stopped=false;var boundary=false
+            val chrome=eu.komars.forgescanner.ui.WarOverlayChrome(targetContext,{stopped=true},{boundary=true},{})
+            val status=android.widget.TextView(targetContext).apply {text=(1..80).joinToString("\n") {"Wiersz $it"}}
+            chrome.content.addView(status);chrome.content.addView(chrome.recovery)
+            fun button(label:String)=descendants(chrome.root).single {it.contentDescription==label}
+            val density=targetContext.resources.displayMetrics.density
+            fun layout(width:Int) {chrome.root.measure(View.MeasureSpec.makeMeasureSpec((width*density).toInt(),View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(0,View.MeasureSpec.UNSPECIFIED));chrome.root.layout(0,0,chrome.root.measuredWidth,chrome.root.measuredHeight)}
+            layout(250)
+            val scroll=descendants(chrome.root).filterIsInstance<android.widget.ScrollView>().single()
+            check(scroll.height<=360*density+1&&scroll.height<status.height){"Long recovery content must scroll inside a bounded panel"}
+            button("Zwiń do ikon").performClick();check(chrome.compact)
+            chrome.listMode(true,false);layout(180)
+            val icons=descendants(chrome.root).filterIsInstance<Button>().filter {it.visibility==View.VISIBLE&&it.parent is android.widget.LinearLayout&&it.contentDescription in listOf("Rozwiń nakładkę","Zatrzymaj listę","Zakończ odczyt ekranu")}.toList()
+            check(icons.size==3&&icons.all {it.width==it.height&&it.width>0}){"Compact controls must be square"}
+            check(icons.last().right<=(icons.last().parent as View).width){"Compact stop is clipped"}
+            button("Zatrzymaj listę").performClick();check(boundary)
+            button("Rozwiń nakładkę").performClick();check(!chrome.compact)
+            button("Zakończ odczyt ekranu").performClick();check(stopped)
+        }
+        return "Detached native war panel: bounded scrolling, compact square icons, expand, boundary and STOP callbacks passed; no windows or gestures opened"
+    }
+
+    /** Reads only the explicitly supplied cached fixture. Never opens or navigates the game. */
+    private fun verifyPrivateRoster():String {
+        fun bytes(path:String):ByteArray = ParcelFileDescriptor.AutoCloseInputStream(uiAutomation.executeShellCommand("cat $path")).use {it.readBytes()}
+        val expected=JSONObject(String(bytes("/data/local/tmp/botyslaw-roster-fixture.json"),Charsets.UTF_8))
+        val input=bytes("/data/local/tmp/botyslaw-roster.png")
+        val image=android.graphics.BitmapFactory.decodeByteArray(input,0,input.size) ?: error("Missing roster fixture")
+        val recognizer=com.google.mlkit.vision.text.TextRecognition.getClient(com.google.mlkit.vision.text.latin.TextRecognizerOptions.DEFAULT_OPTIONS)
+        val latch=CountDownLatch(1);val answer=AtomicReference<Result<List<eu.komars.forgescanner.battle.RosterObservation>>>()
+        try {
+            if(expected.optBoolean("home_proof")) {
+                check(eu.komars.forgescanner.battle.BattleHomeProof.isHome(image)){eu.komars.forgescanner.battle.BattleHomeProof.diagnostic(image)}
+                return "Actual supplied HOME screenshot confirmed without OCR or close calibration"
+            }
+            if(expected.has("header_expected")) {
+                val w=360;val h=image.height*w/image.width;val small=Bitmap.createScaledBitmap(image,w,h,true)
+                val pixels=IntArray(w*h);small.getPixels(pixels,0,w,0,0,w,h);small.recycle()
+                val list=eu.komars.forgescanner.model.WarScreenGeometry.observe(w,h,pixels).roster?:error("No clan viewport")
+                val header=eu.komars.forgescanner.battle.RosterHeaderRegion.above(w,h,list)?:error("No bounded header")
+                val configured=expected.optJSONArray("header_region")
+                val bounds=if(configured!=null)Rect(configured.getInt(0),configured.getInt(1),configured.getInt(2),configured.getInt(3))else Rect(header.left*image.width/w,header.top*image.height/h,header.right*image.width/w,header.bottom*image.height/h)
+                val crop=Bitmap.createBitmap(image,bounds.left,bounds.top,bounds.width(),bounds.height())
+                val readDone=CountDownLatch(1);val text=AtomicReference<String>();var attempts=0
+                onMain {eu.komars.forgescanner.battle.RosterHeaderReader(recognizer).read(crop,{true},firstPass=expected.optInt("header_pass",0)) {reading->text.set(reading.text);attempts=reading.attempts;readDone.countDown()}}
+                check(readDone.await(20,TimeUnit.SECONDS)){"Header OCR timeout"}
+                val count=eu.komars.forgescanner.battle.WarPreparationModel.memberCount(text.get().orEmpty())
+                val expectedCount=expected.getInt("header_expected").takeIf {it>0}
+                check(count==expectedCount){"Header count $count: ${text.get()}"}
+                if(expected.has("attempts"))check(attempts==expected.getInt("attempts")){"Unexpected attempts: $attempts"}
+                if(expected.has("clan_expected")) {
+                    val clan=eu.komars.forgescanner.battle.WarRosterProof.clan(text.get().orEmpty())
+                    check(clan==expected.getString("clan_expected")){"Wrong clan header $clan: ${text.get()}"}
+                }
+                return "Clan header only: $count members; bounds=$bounds; attempts=$attempts; text=${text.get()}"
+            }
+            onMain {eu.komars.forgescanner.battle.RosterFrameReader(recognizer,targetContext.cacheDir,expected.optInt("scale",3),expected.optInt("name_threshold",244),expected.optInt("dilation",1)).read(image,Rect(0,0,image.width,image.height),{true}) {answer.set(it);latch.countDown()}}
+            check(latch.await(35,TimeUnit.SECONDS)){"Roster OCR timeout"}
+            val rows=answer.get().getOrThrow();val registry=eu.komars.forgescanner.battle.RosterRegistry()
+            val repairIndex=expected.optInt("repair_index",-1)
+            val inputRows=if(repairIndex in rows.indices)rows.mapIndexed {i,row ->if(i==repairIndex)row.copy(readings=listOf(eu.komars.forgescanner.battle.RosterReading(null,null)))else row}else rows
+            registry.addView(inputRows,expected.getJSONArray("powers").length()).getOrThrow()
+            if(repairIndex in rows.indices) {
+                check(registry.size==rows.size&&registry.resolvedCount==rows.size-1){"Wrong pending count before cached repair"}
+                val targets=registry.repairTargets;check(targets.size==1&&targets.single().index==repairIndex){"Repair must read exactly the missing person"}
+                val repaired=AtomicReference<Result<List<List<eu.komars.forgescanner.battle.RosterReading>>>>();val repairDone=CountDownLatch(1)
+                onMain {eu.komars.forgescanner.battle.RosterFrameReader(recognizer).retry(targets.map {it.snapshot},0,{true}) {repaired.set(it);repairDone.countDown()}}
+                check(repairDone.await(35,TimeUnit.SECONDS)){"Cached repair timeout"}
+                registry.repair(repairIndex,repaired.get().getOrThrow().single())
+                check(registry.size==rows.size){"Cached repair appended a person"}
+            }
+            if(expected.optBoolean("repair_missing")) {
+                for(attempt in 0..1) {
+                    val targets=registry.repairTargets;if(targets.isEmpty())break
+                    val repaired=AtomicReference<Result<List<List<eu.komars.forgescanner.battle.RosterReading>>>>();val done=CountDownLatch(1)
+                    onMain {eu.komars.forgescanner.battle.RosterFrameReader(recognizer).retry(targets.map {it.snapshot},attempt,{true}) {repaired.set(it);done.countDown()}}
+                    check(done.await(35,TimeUnit.SECONDS)){"Pending-only repair timeout"}
+                    targets.forEachIndexed {i,target ->registry.repair(target.index,repaired.get().getOrThrow()[i])}
+                }
+            }
+            val members=registry.values
+            val diagnostic=rows.mapIndexed {i,row ->"$i: ${row.readings}"}.joinToString("; ")
+            check(rows.size==expected.getJSONArray("powers").length()){"Wrong card count: ${rows.size}; $diagnostic"}
+            check(members.size==rows.size){"Unresolved cards; $diagnostic"}
+            members.forEachIndexed {i,m ->check(kotlin.math.abs(m.power-expected.getJSONArray("powers").getDouble(i))<1){"Wrong power row $i: ${m.power}; $diagnostic"}}
+            if(expected.has("names"))members.forEachIndexed {i,m ->check(m.name.lowercase()==expected.getJSONArray("names").getString(i).lowercase()){"Wrong name row $i: ${m.name}"}}
+            return "Static roster fixture: ${members.size} cards and exact powers; cachedRepair=${repairIndex>=0}; " + members.joinToString {"${it.name}: ${it.power}"}
+        } finally {onMain {recognizer.close();if(!image.isRecycled)image.recycle()}}
+    }
+
+    private fun verifyPrivateHammerFrames(expected: Long): String {
+        val cases = listOf(Rect(510, 1915, 635, 1995), Rect(445, 1895, 655, 2000), Rect(300, 1770, 1000, 2025))
+        val summaries = mutableListOf<String>()
+        for ((caseIndex, region) in cases.withIndex()) {
+            val ocr = OcrAnalyzer()
+            val frames = (1..3).map { index ->
+                val descriptor = uiAutomation.executeShellCommand("cat /data/local/tmp/botyslaw-hammer-$index.png")
+                ParcelFileDescriptor.AutoCloseInputStream(descriptor).use { android.graphics.BitmapFactory.decodeStream(it) ?: error("Missing private hammer frame") }
+            }
+            val done = CountDownLatch(1)
+            val result = AtomicReference<OcrAnalysis>()
+            val remaining = java.util.ArrayDeque(frames.drop(1))
+            try {
+                onMain {
+                    eu.komars.forgescanner.vision.HammerCounterReader(ocr, freshFrame = { callback -> callback(remaining.removeFirst(), null) })
+                        .read(frames.first(), region, { true }) { result.set(it); done.countDown() }
+                }
+                check(done.await(25, TimeUnit.SECONDS)) { "Private hammer OCR timed out" }
+                val answer = result.get()
+                check(answer.candidates.any { it.value == expected }) { "Case $caseIndex lost the expected value; candidates=" + answer.candidates.map { it.value } }
+                check(answer.requiresConfirmation || answer.candidates.single().value == expected) { "Case $caseIndex auto-accepted a wrong value" }
+                summaries += "case $caseIndex: ${answer.candidates.map { it.value }}, confirm=${answer.requiresConfirmation}"
+            } finally { onMain { ocr.close(); frames.filterNot { it.isRecycled }.forEach { it.recycle() } } }
+        }
+        return "Real source frames, numeric-only / icon included / broad crop: " + summaries.joinToString("; ")
+    }
+    private fun verifyHammerBurst(): String {
+        fun image(): Bitmap {
+            val bitmap = Bitmap.createBitmap(640, 200, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bitmap)
+            canvas.drawColor(Color.rgb(155, 155, 155))
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                textSize = 100f; typeface = android.graphics.Typeface.create(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD)
+                color = Color.BLACK; style = Paint.Style.STROKE; strokeWidth = 8f
+            }
+            canvas.drawText("3888", 70f, 140f, paint)
+            paint.style = Paint.Style.FILL; paint.color = Color.WHITE
+            canvas.drawText("3888", 70f, 140f, paint)
+            return bitmap
+        }
+        val ocr = OcrAnalyzer()
+        val requests = java.util.concurrent.atomic.AtomicInteger()
+        val owned = mutableListOf<Bitmap>()
+        val done = CountDownLatch(1)
+        val answer = AtomicReference<OcrAnalysis>()
+        try {
+            onMain {
+                val first = image().also(owned::add)
+                eu.komars.forgescanner.vision.HammerCounterReader(ocr, freshFrame = { callback ->
+                    requests.incrementAndGet()
+                    callback(image().also(owned::add), null)
+                }).read(first, Rect(0, 0, 640, 200), { true }) { result -> answer.set(result); done.countDown() }
+            }
+            check(done.await(25, TimeUnit.SECONDS)) { "Hammer burst timed out" }
+            check(requests.get() == 2 && owned.all { it.isRecycled }) { "Burst must own/release exactly three source images" }
+            val result = answer.get()
+            check(result.candidates.any { it.value == 3888L }) { "Outlined hammer fixture lost the correct reading" }
+            check(result.requiresConfirmation || result.candidates.single().value == 3888L) { "A conflicting value was auto-accepted" }
+            return "Hammer burst used three source frames and contrast variants, retained 3888 and released bitmaps"
+        } finally { onMain { ocr.close(); owned.filterNot { it.isRecycled }.forEach { it.recycle() } } }
+    }
     private fun verifyDemoCannotSend(): String {
         val calls = java.util.concurrent.atomic.AtomicInteger()
         val client = MobileSyncClient(targetContext, demoMode = { true }, testTransport = { _, _, _ ->
@@ -502,6 +852,22 @@ class ScannerSmokeInstrumentation : Instrumentation() {
         check(onMain { descendants(permissionActivity.window.decorView).none { it is EditText } }) {
             "Permission screen unexpectedly includes resource inputs"
         }
+        onMain {
+            check(permissionActivity.findViewById<Button>(MainActivity.ID_DEMO) == null) { "Demo must not be on the permission screen" }
+            permissionActivity.findViewById<Button>(MainActivity.ID_OPTIONS).performClick()
+            checkNotNull(permissionActivity.findViewById<Button>(MainActivity.ID_DEMO)) { "Demo must be available in Options before overlay permission" }
+            permissionActivity.findViewById<Button>(MainActivity.ID_HELP).performClick()
+            check(descendants(permissionActivity.window.decorView).filterIsInstance<android.widget.TextView>().any { it.text.toString() == "Pomoc" }) { "Help must be a readable page" }
+            permissionActivity.findViewById<Button>(MainActivity.ID_BACK).performClick()
+            val app = permissionActivity.application as ScannerApplication
+            val previous = app.session.snapshot().values
+            permissionActivity.findViewById<Button>(MainActivity.ID_DEMO).performClick()
+            check(app.demo && permissionActivity.findViewById<EditText>(MainActivity.FIELD_ID_BASE) != null) { "Options must open demo results without overlay consent" }
+            permissionActivity.findViewById<Button>(MainActivity.ID_BACK).performClick()
+            permissionActivity.findViewById<Button>(MainActivity.ID_OPTIONS).performClick()
+            permissionActivity.findViewById<Button>(MainActivity.ID_DEMO).performClick()
+            check(!app.demo && app.session.snapshot().values == previous) { "Leaving demo must restore real results" }
+        }
         onMain { permissionActivity.finish() }
         waitForIdleSync()
 
@@ -515,6 +881,10 @@ class ScannerSmokeInstrumentation : Instrumentation() {
         }
         check(onMain { descendants(homeActivity.window.decorView).none { it is EditText } }) {
             "Home must not include the seven-field review form"
+        }
+        check(onMain { homeActivity.findViewById<Button>(MainActivity.ID_DEMO) == null &&
+            homeActivity.findViewById<android.widget.TextView>(MainActivity.ID_CAPTURE_DISCLOSURE)?.text?.contains("Obrazy") == true }) {
+            "Home must keep capture disclosure before Start and move demo to Options"
         }
         onMain { homeActivity.findViewById<Button>(MainActivity.ID_RESULTS).performClick() }
         val draftValue = "9,88k"

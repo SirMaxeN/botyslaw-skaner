@@ -48,6 +48,16 @@ object CaptureConnection {
         }
     }
 
+    /** Require a newly rendered source image; repeated reads of a cached buffer are not votes. */
+    fun requestFreshFrame(callback: FrameCallback) = onMain {
+        val current = service
+        if (current == null || state != CaptureState.READY) callback(null, "Odczyt ekranu został zatrzymany.")
+        else current.requestFrame(callback, freshOnly = true)
+    }
+
+    /** Cancel only this caller's pending screenshot; another reader's request is untouched. */
+    fun cancelFrameRequest(callback: FrameCallback) = onMain { service?.cancelFrameRequest(callback) }
+
     fun requestGrayRegion(region: Rect, width: Int, height: Int, outputWidth: Int, outputHeight: Int,
         callback: (GrayScrollFrame?, String?) -> Unit) = onMain {
         val current = service

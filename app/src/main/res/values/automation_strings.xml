@@ -1,0 +1,4 @@
+<resources>
+<string name="gesture_accessibility_description">Opcjonalny automatyczny skan Forge Master. Po naciśnięciu Skanuj otwiera zapisane ekrany i przewija listy, aby odczytać zasoby. Nie przyzywa, nie łączy i nie kupuje. STOP zatrzymuje sekwencję po bieżącym krótkim geście. Usługa nie pobiera treści okien ani nie wysyła obrazów. Włączaj tylko, jeśli chcesz używać automatycznego skanu.</string>
+<string name="gesture_accessibility_summary">Nawigacja i przewijanie podczas skanu uruchomionego przez Ciebie.</string>
+</resources>

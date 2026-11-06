@@ -29,6 +29,15 @@ for relative in files:
     text = data.decode('utf-8', errors='replace')
     if any(pattern.search(text) for pattern in patterns):
         findings.append((relative, 'possible credential material'))
+# Shared capture/vision and resource proposals must not depend on battle policies.
+shared = ["vision/GameUiDetector.kt", "vision/ResourceFieldProposal.kt",
+          "model/GameUiGeometryDetector.kt", "model/CloseButtonPixelDetector.kt",
+          "ui/CaptureIndicator.kt", "capture/CaptureConnection.kt", "capture/FrameCaptureService.kt"]
+for relative in shared:
+    path = root / "app/src/main/java/eu/komars/forgescanner" / relative
+    source = path.read_text(encoding="utf-8")
+    if re.search(r"eu\.komars\.forgescanner\.battle\.|\b(?:War|Battle)[A-Z]\w*", source):
+        findings.append((relative, "shared/resource module depends on battle policy"))
 for path, reason in findings:
     print(f'{path}: {reason}', file=sys.stderr)
 print(f'{len(files)} Git candidates; {len(findings)} findings.')

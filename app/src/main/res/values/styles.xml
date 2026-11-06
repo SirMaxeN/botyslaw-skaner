@@ -7,4 +7,12 @@
         <item name="android:navigationBarColor">#111827</item>
         <item name="android:windowActionModeOverlay">true</item>
     </style>
+    <style name="ScannerDialogTheme" parent="android:style/Theme.Material.Dialog.Alert">
+        <item name="android:colorAccent">#72D8B5</item>
+        <item name="android:colorBackground">#0B111D</item>
+        <item name="android:windowBackground">#0B111D</item>
+        <item name="android:textColorPrimary">#EDF2FB</item>
+        <item name="android:textColorSecondary">#9EB0C8</item>
+        <item name="android:colorControlNormal">#9EB0C8</item>
+    </style>
 </resources>

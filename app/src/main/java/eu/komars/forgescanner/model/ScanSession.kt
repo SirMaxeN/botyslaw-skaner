@@ -62,11 +62,12 @@ data class ScanSnapshot(
 
 /** A scan is temporary local state. Missing OCR results never overwrite an earlier value. */
 class ScanSession(private val clock: () -> Long = System::currentTimeMillis) {
-    private val startedAt = clock()
+    private var startedAt = clock()
     private var updatedAt = startedAt
     private var currentStep = ScanStep.MOUNT_CURRENCY
     private val observations = linkedMapOf<ResourceField, ResourceObservation>()
 
+    var onChange: ((ScanSnapshot)->Unit)? = null
     val step: ScanStep get() = currentStep
 
     fun setValue(field: ResourceField, value: Long, confirmed: Boolean = true, approximate: Boolean = false, sourceText: String? = null) {
@@ -74,31 +75,42 @@ class ScanSession(private val clock: () -> Long = System::currentTimeMillis) {
         require(!field.isCost || value > 0) { "Koszt musi być większy od zera." }
         observations[field] = ResourceObservation(value, confirmed, approximate, sourceText)
         updatedAt = clock()
+        onChange?.invoke(snapshot())
     }
 
     fun removeValue(field: ResourceField) {
         observations.remove(field)
         updatedAt = clock()
+        onChange?.invoke(snapshot())
     }
 
     fun confirm(field: ResourceField) {
         observations[field]?.let { observations[field] = it.copy(confirmed = true) }
         updatedAt = clock()
+        onChange?.invoke(snapshot())
     }
 
     fun next(): ScanStep {
         currentStep = ScanStep.entries[(currentStep.ordinal + 1).coerceAtMost(ScanStep.REVIEW.ordinal)]
+        onChange?.invoke(snapshot())
         return currentStep
     }
 
     fun back(): ScanStep {
         currentStep = ScanStep.entries[(currentStep.ordinal - 1).coerceAtLeast(0)]
+        onChange?.invoke(snapshot())
         return currentStep
     }
 
-    fun goTo(step: ScanStep) { currentStep = step }
+    fun goTo(step: ScanStep) { currentStep = step;onChange?.invoke(snapshot()) }
 
     fun snapshot(): ScanSnapshot = ScanSnapshot(currentStep, observations.toMap(), startedAt, updatedAt)
 
-    companion object { const val MAX_VALUE: Long = 9_000_000_000_000L }
+    companion object {
+        const val MAX_VALUE: Long = 9_000_000_000_000L
+        fun restore(saved:ScanSnapshot)=ScanSession().apply {
+            saved.values.forEach {(field,v)->setValue(field,v.value,v.confirmed,v.approximate,v.sourceText)}
+            startedAt=saved.startedAtMillis;updatedAt=saved.updatedAtMillis;currentStep=saved.step
+        }
+    }
 }

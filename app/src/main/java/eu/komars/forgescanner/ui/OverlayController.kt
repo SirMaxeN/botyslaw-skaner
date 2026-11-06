@@ -97,7 +97,7 @@ class OverlayController(
         val view = if (compact) bubble() else panel()
         val screen = context.resources.displayMetrics
         val params = WindowManager.LayoutParams(
-            if (compact) dp(46) else minOf(dp(264), screen.widthPixels - dp(16)),
+            if (compact) ScannerIconBar.width(context, 3) else minOf(dp(264), screen.widthPixels - dp(16)),
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
@@ -130,12 +130,11 @@ class OverlayController(
     private fun allowed() = Settings.canDrawOverlays(context) && CaptureConnection.state == CaptureState.READY
     private fun removePanel() { countView = null; recordingTitleView = null; recordingHintView = null; root?.let { runCatching { manager.removeView(it) } }; root = null }
 
-    private fun bubble() = label("⌖", 26f, true).apply {
-        gravity = Gravity.CENTER
-        background = background(0xFF183C3A.toInt(), 24)
-        contentDescription = "Otwórz skaner"
-        draggable(this) { compact = false; show() }
-    }
+    private fun bubble(): View = ScannerIconBar.create(context,listOf(
+        Triple("Rozwiń skaner","⛶",{ compact=false;show() }),
+        Triple("Wyniki","≡",{ openReview() }),
+        Triple("Zakończ odczyt","✕",{ (context.applicationContext as ScannerApplication).closeScanner() })
+    )).apply { draggable(this) { compact=false;show() } }
 
     private fun panel(): View {
         if (recordingTarget != null) return recordingPanel()
@@ -271,18 +270,22 @@ class OverlayController(
     private fun analyze(bitmap: Bitmap, target: ScanTarget, region: Rect, callback: (OcrAnalysis) -> Unit) {
         val token = generation
         busy = true
-        ocr.analyze(bitmap, target.step, region) { result ->
+        eu.komars.forgescanner.vision.CounterBurstReader(ocr).read(bitmap, target, region,
+            isActive = { token == generation && flow.currentTarget == target.owner }) { result ->
             if (token == generation && flow.currentTarget == target.owner) { busy = false; callback(result) }
         }
-        recycle(bitmap)
     }
 
     private fun chooseCandidate(result: OcrAnalysis, target: ScanTarget, region: Rect, width: Int, height: Int, setup: Boolean) {
         val candidates = eu.komars.forgescanner.vision.OcrChoices.unique(result.candidates, target.field.isCost)
         show()
         if (candidates.isEmpty()) { fail("Brak czytelnej liczby. Wybierz Ustaw."); return }
-        if (!setup && candidates.size == 1) { acceptNumber(target, candidates.single()); return }
-        val title = if (setup) "${target.title}: wybierz poprawną wartość" else "${target.title}: który odczyt?"
+        if (!setup && candidates.size == 1 && !result.requiresConfirmation) { acceptNumber(target, candidates.single()); return }
+        val title = when {
+            setup -> "${target.title}: wybierz poprawną wartość"
+            result.requiresConfirmation -> "${target.title}: sprawdź niepewny odczyt"
+            else -> "${target.title}: który odczyt?"
+        }
         showDialog(AlertDialog.Builder(context).setTitle(title)
             .setItems(candidates.map { "${it.sourceText}  =  ${number.format(it.value)}${if (it.approximate) " ≈" else ""}" }.toTypedArray()) { _, index ->
                 val selected = candidates[index]
@@ -318,7 +321,7 @@ class OverlayController(
         }
         val token = generation
         busy = true
-        PairedCounterReader(ocr).read(bitmap, target, regions.mapValues { requireNotNull(it.value) }) { result ->
+        PairedCounterReader(ocr).read(bitmap, target, regions.mapValues { requireNotNull(it.value) }, isActive = { token == generation && flow.currentTarget == target }) { result ->
             if (token != generation || flow.currentTarget != target) return@read
             busy = false
             result.fold({ candidates ->
@@ -336,7 +339,7 @@ class OverlayController(
                             advance()
                         }
                     }
-                    if (choices.size == 1) accept(choices.single())
+                    if (choices.size == 1 && !choices.single().approximate) accept(choices.single())
                     else {
                         show()
                         showDialog(AlertDialog.Builder(context).setTitle("${counter.title}: wybierz wartość")
@@ -559,19 +562,19 @@ class OverlayController(
     }
 
     private fun returnToApplication() {
-        hide()
         context.startActivity(Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
             putExtra("home", true)
         })
+        closeScanner()
     }
 
     private fun openReview() {
-        compact = true; removePanel()
         context.startActivity(Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
             putExtra("review", true)
         })
+        closeScanner()
     }
     private fun stepColor(): Int = when (flow.currentTarget?.position) {
         1 -> 0xFFFFCB69.toInt()

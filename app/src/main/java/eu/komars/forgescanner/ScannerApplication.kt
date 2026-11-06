@@ -15,6 +15,28 @@ class ScannerApplication : Application() {
     lateinit var overlay: OverlayController
         private set
     val flow = GuidedScanFlow { session }
+    var battleMode = false
+    val battleOverlay by lazy { eu.komars.forgescanner.battle.BattleOverlay(this) }
+    val warOverlay by lazy { eu.komars.forgescanner.battle.WarPreparationOverlay(this) }
+    private val captureIndicator by lazy { eu.komars.forgescanner.ui.CaptureIndicator(this) }
+    private val busyOwners=mutableSetOf<String>()
+    fun setScannerBusy(owner:String,busy:Boolean) {if(busy)busyOwners+=owner else busyOwners-=owner;refreshIndicator()}
+    private fun refreshIndicator() {if(busyOwners.isNotEmpty() && CaptureConnection.state==CaptureState.READY)captureIndicator.show()else captureIndicator.hide()}
+    var automaticMode = false
+    lateinit var autoOverlay: eu.komars.forgescanner.ui.AutoScanOverlay
+        private set
+
+    fun showScannerOverlay() { if (automaticMode) autoOverlay.show() else overlay.show() }
+    fun acceptAutomaticReadings(values: Map<eu.komars.forgescanner.model.ScanTarget, eu.komars.forgescanner.automation.AutoReading>) {
+        session = ScanSession().apply {
+            values.forEach { (target, reading) -> setValue(target.field, reading.value, confirmed = false,
+                approximate = reading.approximate, sourceText = reading.source) }
+            goTo(eu.komars.forgescanner.model.ScanStep.REVIEW)
+        }
+        watchResourceDraft()
+        session.onChange?.invoke(session.snapshot())
+        flow.reset()
+    }
     lateinit var calibrations: CalibrationStore
         private set
     lateinit var mobile: MobileSyncClient
@@ -55,28 +77,57 @@ class ScannerApplication : Application() {
     }
 
     fun closeScanner() {
+        busyOwners.clear();captureIndicator.hide()
+        warOverlay.hide()
+        battleOverlay.endSession()
         restartScan = true
         overlay.hide()
+        autoOverlay.hide()
         CaptureConnection.stop()
     }
 
     override fun onCreate() {
         super.onCreate()
+        if(BuildConfig.DEBUG)Thread {
+            runCatching {val source=java.io.File(cacheDir,"home-rejected.png");if(source.exists()) {
+                val image=android.graphics.BitmapFactory.decodeFile(source.absolutePath)
+                val reduced=android.graphics.Bitmap.createScaledBitmap(image,360,image.height*360/image.width,true)
+                java.io.FileOutputStream(java.io.File(cacheDir,"home-native-360.png")).use {reduced.compress(android.graphics.Bitmap.CompressFormat.PNG,100,it)};if(reduced!==image)reduced.recycle()
+                java.io.File(cacheDir,"home-diagnostic.txt").writeText(eu.komars.forgescanner.battle.BattleHomeProof.diagnostic(image));image.recycle()
+            }}
+        }.start()
         calibrations = CalibrationStore(this)
         mobile = MobileSyncClient(this, demoMode = { demo })
+        if(mobile.paired) eu.komars.forgescanner.model.ResourceDraftStore(this).load(mobile.name.orEmpty())?.let {session=it}
+        watchResourceDraft()
         overlay = OverlayController(this, { session }, flow, calibrations)
+        autoOverlay = eu.komars.forgescanner.ui.AutoScanOverlay(this, calibrations)
         CaptureConnection.addStateListener { state, _ ->
+            if(state==CaptureState.STOPPED || state==CaptureState.ERROR)busyOwners.clear()
+            refreshIndicator()
             when (state) {
-                CaptureState.READY -> { prepareOverlaySession(); overlay.show() }
-                CaptureState.STOPPED, CaptureState.ERROR -> { restartScan = true; overlay.hide() }
+                CaptureState.READY -> { if (!battleMode) { prepareOverlaySession(); showScannerOverlay() } }
+                CaptureState.STOPPED, CaptureState.ERROR -> { restartScan = true; overlay.hide(); autoOverlay.hide(); battleOverlay.endSession() }
                 else -> Unit
             }
         }
     }
 
+    private fun watchResourceDraft() {
+        val owner=mobile.name.orEmpty()
+        session.onChange={snapshot ->
+            if(!demo && mobile.paired && mobile.name.orEmpty()==owner) {
+                eu.komars.forgescanner.model.ResourceDraftStore(this).save(owner,snapshot)
+                val approved=snapshot.values.filter {it.key.isCost && it.value.confirmed && !it.value.approximate}.mapValues {it.value.value}
+                if(approved.isNotEmpty())eu.komars.forgescanner.model.ConfirmedCostMemory(this).remember(owner,approved)
+            }
+        }
+    }
     fun startNewSession() {
         overlay.resetSession()
+        autoOverlay.resetSession()
         flow.reset()
         session = ScanSession()
+        watchResourceDraft()
     }
 }
