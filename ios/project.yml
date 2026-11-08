@@ -1,0 +1,55 @@
+# XcodeGen spec: on a Mac run `xcodegen generate` in this folder to create BotyslawSkaner.xcodeproj.
+name: BotyslawSkaner
+options:
+  bundleIdPrefix: com.sirmaxen
+  deploymentTarget:
+    iOS: "16.0"
+settings:
+  base:
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.9"
+    DEVELOPMENT_TEAM: "" # set in Xcode (Signing & Capabilities) after creating the Apple Developer account
+targets:
+  BotyslawSkaner:
+    type: application
+    platform: iOS
+    sources: [BotyslawSkaner, Shared]
+    info:
+      path: BotyslawSkaner/Info.plist
+      properties:
+        CFBundleDisplayName: Botysław Skaner
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+    entitlements:
+      path: BotyslawSkaner/BotyslawSkaner.entitlements
+      properties:
+        com.apple.security.application-groups: [group.com.sirmaxen.BotyslawSkaner]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.sirmaxen.BotyslawSkaner
+    dependencies:
+      - target: BroadcastExtension
+      # TODO (Etap 1): - framework: ../shared/build/XCFrameworks/release/BotyslawShared.xcframework
+  BroadcastExtension:
+    type: app-extension
+    platform: iOS
+    sources: [BroadcastExtension, Shared]
+    info:
+      path: BroadcastExtension/Info.plist
+      properties:
+        CFBundleDisplayName: Botysław
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.broadcast-services-upload
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).SampleHandler
+          RPBroadcastProcessMode: RPBroadcastProcessModeSampleBuffer
+    entitlements:
+      path: BroadcastExtension/BroadcastExtension.entitlements
+      properties:
+        com.apple.security.application-groups: [group.com.sirmaxen.BotyslawSkaner]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.sirmaxen.BotyslawSkaner.broadcast
+    dependencies:
+      - sdk: ReplayKit.framework
+      # TODO (Etap 1): - framework: ../shared/build/XCFrameworks/release/BotyslawShared.xcframework
