@@ -32,7 +32,7 @@ To szkielet. Pliki Swift zawierają tylko strukturę i komentarze `TODO`. Logika
 6. Wydanie: **Product → Archive → Distribute App → App Store Connect**, a potem TestFlight.
 
 ## Identyfikatory
-- Aplikacja: `com.sirmaxen.BotyslawSkaner` (tak samo jak na Androidzie).
+- Aplikacja: `com.sirmaxen.BotyslawSkaner`, czyli dokładnie `applicationId` z Androida, z tym samym przedrostkiem co WhoStarts (`com.sirmaxen.WhoStarts`). `eu.komars.forgescanner` to tylko pakiet kodu, nie identyfikator.
 - Rozszerzenie: `com.sirmaxen.BotyslawSkaner.broadcast`.
 - App Group: `group.com.sirmaxen.BotyslawSkaner`.
 - Serwer bota: `https://komars.eu/discord/botyslaw-smith/mobile/` (trasy `pair` i `resources`, tak jak na Androidzie).

@@ -16,6 +16,11 @@ Ustalenia z użytkownikiem:
 - konto Apple Developer użytkownik dopiero założy;
 - na razie nikt nie testuje na iPhonie, więc wszystko sprawdzamy na nagraniach, w symulatorze Xcode i w symulatorze na Windowsie.
 
+## Identyfikatory (sprawdzone 2026-11-08)
+- **Bundle ID = Android `applicationId`: `com.sirmaxen.BotyslawSkaner`** (`app/build.gradle.kts`). Przedrostek `com.sirmaxen.` jest ten sam co w WhoStarts (`com.sirmaxen.WhoStarts`).
+- `eu.komars.forgescanner` to tylko pakiet kodu Kotlin (`namespace`). **Nie** jest to identyfikator aplikacji.
+- Rozszerzenie nagrywania: `com.sirmaxen.BotyslawSkaner.broadcast`. App Group: `group.com.sirmaxen.BotyslawSkaner`.
+
 ## Co już mamy (z przeglądu kodu)
 - **Czysty Kotlin**, bez Androida, działa na `IntArray` ARGB albo `GrayScrollFrame`:
   - wykrywanie ekranów: `model/GameUiGeometryDetector.kt` (`screenKind()`), `GridGeometryDetector`, `InventoryEndDetector`, `ResearchWindowGeometry`;

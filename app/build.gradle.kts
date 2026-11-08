@@ -10,8 +10,8 @@ android {
         manifestPlaceholders["appLabel"] = "Botysław Skaner"
         minSdk = 26
         targetSdk = 36
-        versionCode = 45
-        versionName = "1.4.8"
+        versionCode = 46
+        versionName = "1.4.9"
         buildConfigField("boolean", "PLAY_DISTRIBUTION", "false")
         testInstrumentationRunner = "eu.komars.forgescanner.ScannerSmokeInstrumentation"
     }

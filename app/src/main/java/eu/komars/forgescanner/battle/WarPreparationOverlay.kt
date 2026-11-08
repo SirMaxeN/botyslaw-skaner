@@ -1401,7 +1401,7 @@ class WarPreparationOverlay(private val context:Context) {
  /** Management (roles from /setup or administrators) may redo the Sunday list; the app asks before replacing it. */
  private var canOverrideList=false
  private fun upload(overwrite:Boolean=false,notify:Boolean=true,previewOnly:Boolean=false) {
-  retryStep={upload()};repairKey=null;clearRecoveryActions()
+  retryStep={upload(overwrite,notify,previewOnly)};repairKey=null;clearRecoveryActions()
   step(7,"Raport wojenny")
   if(!WarRosterProof.complete(ours.values,enemies.values,ourExpected,enemyExpected,ownClan,enemyClan)) {
    if(fullMode) {

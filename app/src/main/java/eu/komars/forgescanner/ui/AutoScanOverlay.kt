@@ -205,7 +205,7 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN, PixelFormat.TRANSLUCENT).apply {
             if (Build.VERSION.SDK_INT >= 30) { setFitInsetsTypes(0); layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS }
             gravity = Gravity.TOP or Gravity.START
-            val moved = movedTo?.takeIf { forbidden == null }
+            val moved = movedTo?.takeIf { forbidden == null && !running && !validating && !returningHome } // automation keeps its fixed spot clear of tap targets
             x = moved?.x ?: dp(8); y = moved?.y ?: desiredY
         }
         panelBounds = Rect(params.x, params.y, params.x + panelWidth, params.y + panelHeight)

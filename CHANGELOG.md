@@ -1,5 +1,11 @@
 # Change log
 
+## 1.4.9 (46) — Google Play
+
+Regression fixes from reviewing 1.4.8:
+- A dragged resource panel position is used only while idle; the running scan, validation and return-home panels stay at their fixed spot so the panel cannot cover automated tap targets.
+- Retrying a failed war-list upload keeps its mode (preview only / update with or without ping) instead of falling back to a plain upload.
+
 ## 1.4.8 (45) — Google Play
 
 - "Przeskanuj listę od góry" after a roster failure now clears the stale saved member list (profiles stay) before reading it again, instead of re-hitting the same identity mismatch.
