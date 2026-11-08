@@ -11,8 +11,8 @@ object PvpBattleEngine {
     fun fifthAttackBonus(p:BattleProfile):Double = p.bonus(Bonus.FIFTH_ATTACK).takeIf {it>0}
         ?: if(p.fairy=="LORA" && p.fairyLevel in 1..20)(30.0+10.0*(p.fairyLevel-1))/100 else 0.0
     fun hpMultiplier(p:BattleProfile)=1.0+.5*p.pets+.5*p.skills.size+if(p.mounted) 2.0 else 0.0
-    fun skillScale(p:BattleProfile)=(1+p.bonus(Bonus.DAMAGE))*(1+p.bonus(Bonus.SKILL_DAMAGE))*(1+p.skillMastery/100)
-    fun skillHealthScale(p:BattleProfile)=(1+p.bonus(Bonus.HEALTH))*(1+p.bonus(Bonus.SKILL_DAMAGE))*(1+p.skillMastery/100)
+    fun skillScale(p:BattleProfile)=(1+p.bonus(Bonus.DAMAGE))*(1+p.bonus(Bonus.SKILL_DAMAGE))*(1+p.skillMastery/100)*AscensionStars.skillMultiplier(p.skillAscension)
+    fun skillHealthScale(p:BattleProfile)=(1+p.bonus(Bonus.HEALTH))*(1+p.bonus(Bonus.SKILL_DAMAGE))*(1+p.skillMastery/100)*AscensionStars.skillMultiplier(p.skillAscension)
     fun cycle(p:BattleProfile,s:BattleSkill)=s.duration+cooldown(p,s)
     fun cooldown(p:BattleProfile,s:BattleSkill)=maxOf(.1,s.cooldown*(1-p.bonus(Bonus.SKILL_COOLDOWN).coerceIn(0.0,.99)))
     fun simulate(player:BattleProfile,opponent:BattleProfile,pw:WarBonus=WarBonus(),ow:WarBonus=WarBonus(),n:Int=1000,random:Random=Random.Default,applyStatic:Boolean=false,rules:PvpRules=PvpRules(),shouldStop:()->Boolean={false}):BattleResult {

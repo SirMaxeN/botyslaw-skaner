@@ -31,6 +31,15 @@ class WarPreparationModelTest {
   assertNull(WarPreparationModel.researchBonus("Zdrowie Wojny Klanów +7.7k%",false))
   assertEquals(9600.0 to 8200.0,WarPreparationModel.bonuses("+8.2k% Zdrowie i +9.6k% Obrażenia"))
   assertNull(WarPreparationModel.bonuses("+9.6k% i +8.2k%"))
+  // Sunday 2026-11-08: a rival without tech shows zeros without a plus sign.
+  val zero="Premia do ataku i bijatyki za drzewo technologii rywalizującego klanu\n0% Obrażenia i 0% Zdrowie"
+  assertEquals(0.0 to 0.0,WarPreparationModel.bonuses(zero))
+  assertEquals(0.0 to 0.0,WarPreparationModel.bonuses("O% Obrażenia i O% Zdrowie"))
+  assertEquals(8700.0 to 0.0,WarPreparationModel.bonuses("+8.7k% Obrażenia i 0% Zdrowie"))
+  assertEquals(9600.0 to 8200.0,WarPreparationModel.bonuses("9600% Obrażenia i 8200% Zdrowie"))
+  assertEquals(0.0 to 0.0,WarPreparationModel.bonuses("0°/o Obrazenia i 0°/o Zdrowie"))
+  assertEquals(0.0 to 0.0,WarPreparationModel.bonuses("Premia do ataku\n0% 0brażenia i 0% Zdr0wie\nOk"))
+  assertEquals(12.0 to 7.0,WarPreparationModel.bonuses("12% Obrazema i 7% Zdrowe"))
  }
  @Test fun researchAllowsOcrSpacesAndMissingPlusButRejectsAmbiguousValues() {
   assertEquals(8700.0,WarPreparationModel.researchBonus("Obrażenia Wojny Klanów + 8.7 k% (+100%)",false)!!,.001)

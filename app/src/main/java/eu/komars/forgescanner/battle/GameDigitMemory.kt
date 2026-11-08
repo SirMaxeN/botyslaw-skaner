@@ -17,7 +17,16 @@ class GameDigitMemory(context:Context) {
   runCatching {context.assets.open("game_digits_v1.txt").bufferedReader().use {GameDigitFont.decode(it.readText())}}.getOrDefault(emptyList())
  }
  private fun learned()=GameDigitFont.decode(prefs.getString("samples","").orEmpty())
- private fun samples()=bundled+learned()
+ /** Samples learned by other players' phones, downloaded from the bot server (kept apart from local ones). */
+ private fun sharedSamples()=GameDigitFont.decode(prefs.getString("shared_samples","").orEmpty())
+ private fun samples()=bundled+learned()+sharedSamples()
+ /** Local learned samples for upload to the shared base. */
+ fun exportLearned():List<GameDigitFont.Sample> = learned()
+ fun importShared(fresh:List<GameDigitFont.Sample>) {
+  if(fresh.isEmpty())return
+  val kept=(sharedSamples()+fresh).distinctBy {it.digit to it.glyph.bits}.groupBy {it.digit}.values.flatMap {it.takeLast(24)}
+  prefs.edit().putString("shared_samples",GameDigitFont.encode(kept)).apply()
+ }
  private fun pixels(image:Bitmap):IntArray=IntArray(image.width*image.height).also {image.getPixels(it,0,image.width,0,0,image.width,image.height)}
  fun read(image:Bitmap):Int?=runCatching {GameDigitFont.read(image.width,image.height,pixels(image),samples())}.getOrNull()
  /** Plain counter ("9383") from raw pixels; null unless every digit is unambiguous. */

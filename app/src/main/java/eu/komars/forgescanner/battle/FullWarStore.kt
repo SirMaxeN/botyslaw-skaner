@@ -1,5 +1,6 @@
 package eu.komars.forgescanner.battle
 import android.content.Context
+import org.json.JSONArray
 import org.json.JSONObject
 import java.security.MessageDigest
 import java.time.LocalDate
@@ -7,9 +8,17 @@ import java.time.ZoneId
 
 /** Separate storage: no accepted self/opponent profile, pairing or calibration is overwritten. */
 internal class FullWarStore(context:Context,namespace:String="full_war") {
+ private val appContext=context.applicationContext
  private val logFile=java.io.File(context.cacheDir,"${namespace}-events.jsonl")
  private val fairyProgressions=FairyProgressionCatalog(context)
  private val prefs=context.getSharedPreferences("${namespace}_profiles_v1",0)
+ init {
+  // Profiles saved before the readable copy existed are exported once, in the background.
+  Thread {runCatching {
+   val dir=java.io.File(appContext.getExternalFilesDir(null)?:return@runCatching,"profiles")
+   if(dir.list().isNullOrEmpty())prefs.all.values.forEach {value->runCatching {mirror(JSONObject(value.toString()))}}
+  }}.start()
+ }
  private val pairs by lazy {
   val file=context.getDatabasePath("${namespace}_pairs_v1.db");file.parentFile?.mkdirs()
   android.database.sqlite.SQLiteDatabase.openOrCreateDatabase(file,null).apply {
@@ -20,7 +29,8 @@ internal class FullWarStore(context:Context,namespace:String="full_war") {
  }
  companion object {
   const val MODEL="pvp-full-v1"
-  const val REUSE_MILLIS=7*24*60*60*1000L
+  /** Unchanged power means the same profile; a month bounds season rule changes (2026-11-08: was 7 days). */
+  const val REUSE_MILLIS=30*24*60*60*1000L
   /** Roster powers are rounded to three significant digits (e.g. 424m), so allow that rounding only. */
   fun samePower(saved:Double,current:Double)=saved.isFinite()&&current.isFinite()&&current>0&&kotlin.math.abs(saved-current)<=maxOf(saved,current)*0.006
   fun hash(s:String)=MessageDigest.getInstance("SHA-256").digest(s.toByteArray()).joinToString(""){"%02x".format(it)}
@@ -63,11 +73,52 @@ internal class FullWarStore(context:Context,namespace:String="full_war") {
   if(draft!=null)record.put("draft",draft)
   if(error!=null)record.put("error",error)
   check(prefs.edit().putString(key(enemy,clan,member.name),record.toString()).commit()) {"Nie zapisano postępu skanu."}
+  mirror(record)
+  if(profile!=null)runCatching {queueShare(record)}
  }
+ private val share=context.getSharedPreferences("${namespace}_share_v1",0)
+ /** Complete profiles waiting for the bot server backup (sent in batches). */
+ @Synchronized private fun queueShare(record:JSONObject) {
+  val list=JSONArray(share.getString("pending","[]"))
+  list.put(JSONObject().put("enemy",record.optBoolean("enemy")).put("clan",record.optString("clan")).put("name",record.optString("name"))
+   .put("power",record.optDouble("power")).put("savedAt",record.optLong("savedAt")).put("profile",record.optJSONObject("profile")))
+  val kept=JSONArray();for(i in maxOf(0,list.length()-200) until list.length())kept.put(list.get(i))
+  share.edit().putString("pending",kept.toString()).apply()
+ }
+ @Synchronized fun pendingShare():JSONArray=JSONArray(share.getString("pending","[]"))
+ @Synchronized fun clearShared(count:Int) {
+  val list=JSONArray(share.getString("pending","[]"));val kept=JSONArray();for(i in count until list.length())kept.put(list.get(i))
+  share.edit().putString("pending",kept.toString()).apply()
+ }
+ /** A complete profile from the bot server backup; never replaces one read on this phone. */
+ @Synchronized fun importShared(enemy:Boolean,clan:String,member:WarMember,profile:JSONObject,savedAt:Long) {
+  if(entry(enemy,clan,member)?.optBoolean("complete")==true)return
+  val record=JSONObject().put("model",MODEL).put("enemy",enemy).put("clan",clan).put("name",member.name).put("power",member.power)
+   .put("savedAt",savedAt).put("complete",true).put("profile",profile).put("shared",true)
+  prefs.edit().putString(key(enemy,clan,member.name),record.toString()).commit()
+  mirror(record)
+ }
+ /**
+  * Readable copy of every profile in Android/data/<package>/files/profiles (one JSON per member),
+  * so saved scans can be recovered over USB even from the store build. Never blocks the scan.
+  */
+ private fun mirror(record:JSONObject) {runCatching {
+  val dir=java.io.File(appContext.getExternalFilesDir(null)?:return,"profiles").apply {mkdirs()}
+  fun safe(s:String)=BattleText.normalize(s).replace(Regex("[^a-z0-9]+"),"_").trim('_').take(40).ifEmpty {"x"}
+  val name="${if(record.optBoolean("enemy"))"rywal" else "nasi"}-${safe(record.optString("clan"))}-${safe(record.optString("name"))}-${hash(record.optString("name")).take(8)}.json"
+  val tmp=java.io.File(dir,"$name.tmp");tmp.writeText(record.toString(1));tmp.renameTo(java.io.File(dir,name))
+ }}
 
  @Synchronized fun log(event:String,details:JSONObject=JSONObject()) {runCatching {
   if(logFile.exists()&&logFile.length()>512*1024)logFile.writeText(logFile.readLines().takeLast(1000).joinToString("\n",postfix="\n"))
-  logFile.appendText(JSONObject().put("at",java.time.Instant.now().toString()).put("event",event).put("data",details).toString()+"\n")
+  val line=JSONObject().put("at",java.time.Instant.now().toString()).put("event",event).put("data",details).toString()+"\n"
+  logFile.appendText(line)
+  // Same event log next to the profile copies, readable over USB from the store build too.
+  runCatching {
+   val shared=java.io.File(appContext.getExternalFilesDir(null)?:return@runCatching,"logs/${logFile.name}").apply {parentFile?.mkdirs()}
+   if(shared.exists()&&shared.length()>1024*1024)shared.writeText(shared.readLines().takeLast(2000).joinToString("\n",postfix="\n"))
+   shared.appendText(line)
+  }
  }}
  @Synchronized fun state():JSONObject?=pairs.rawQuery("SELECT payload FROM run_state WHERE id=1",null).use {if(!it.moveToFirst())null else runCatching {JSONObject(it.getString(0))}.getOrNull()?.takeIf {System.currentTimeMillis()-it.optLong("updatedAt") in 0..86_400_000L}}
  @Synchronized fun checkpoint(value:JSONObject,ours:List<RosterSavedRow>,enemies:List<RosterSavedRow>,saveRoster:Boolean=true) {

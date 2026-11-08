@@ -324,7 +324,7 @@ class BattleOverlayDialogs(private val context:Context,private val onMinimized:(
             }
             val result=JSONObject().put("schema",2).put("name",name.text.toString().trim().ifEmpty { if(side=="self") "Moja postać" else "Przeciwnik" })
                 .put("fairy",savedFairy).put("skills",equipped).put("skillsReviewed",true).put("pets",petCount).put("mounted",mountChoice?.let {it.selectedItemPosition==2}?:mount.isChecked).put("skillMastery",masteryValue).put("damage",d).put("health",h).put("ranged",types.checkedRadioButtonId==ranged.id).put("weapon",title)
-                .put("bonuses",bonuses).put("caps",limits).put("raw",o.optString("raw"))
+                .put("bonuses",bonuses).put("caps",limits).put("raw",o.optString("raw")).put("skillAscension",o.optInt("skillAscension",0).coerceIn(0,3))
                 .put("headerRaw",o.optString("headerRaw")).put("scannedAt",o.optLong("scannedAt",System.currentTimeMillis()))
             val memory=SkillVisualMemory(context)
             learned.forEach { (type,scan) -> if(scan!=null) memory.remember(type,scan.optString("raw"),scan.optJSONObject("visual")) }
@@ -352,7 +352,7 @@ class BattleOverlayDialogs(private val context:Context,private val onMinimized:(
         val raw=o.optString("raw")
         return BattleProfile(o.optString("name"),o.getDouble("damage"),o.getDouble("health"),o.getBoolean("ranged"),
             BattleText.completeBonuses(raw,Bonus.entries.filter { values?.has(it.name)==true && !(o.optInt("schema",1)<2 && it==Bonus.SKILL_COOLDOWN && values.optDouble(it.name,0.0)==0.0) }.associateWith { values!!.optDouble(it.name,0.0) }),o.optLong("scannedAt"),raw,BattleText.caps(raw),
-            (0 until (o.optJSONArray("skills")?.length() ?: 0)).map { i -> val e=o.getJSONArray("skills").getJSONObject(i);EquippedSkill(BattleSkill.valueOf(e.getString("type")),e.getInt("level")) },o.optInt("pets",0),o.optBoolean("mounted",false),o.optDouble("skillMastery",0.0),o.optJSONObject("fairy")?.optString("type").orEmpty(),o.optJSONObject("fairy")?.optInt("level",0)?:0)
+            (0 until (o.optJSONArray("skills")?.length() ?: 0)).map { i -> val e=o.getJSONArray("skills").getJSONObject(i);EquippedSkill(BattleSkill.valueOf(e.getString("type")),e.getInt("level")) },o.optInt("pets",0),o.optBoolean("mounted",false),o.optDouble("skillMastery",0.0),o.optJSONObject("fairy")?.optString("type").orEmpty(),o.optJSONObject("fairy")?.optInt("level",0)?:0,o.optInt("skillAscension",0).coerceIn(0,3))
     }
     fun simulate(war:Boolean,autoRun:Boolean=false) {
         val warData=context.getSharedPreferences("war_preparation_v1",0)

@@ -42,7 +42,14 @@ object GameDigitFont {
   val digits=if(prefixed) {
    val dots=parts.filter {it.h<=height*.42&&it.w<=height*.5&&kotlin.math.abs(it.b-baseline)<=height*.25}
    val dot=dots.filter {d->letters.count {it.r<=d.l+1}>=2&&letters.count {it.l>=d.r-1} in 1..3}.maxByOrNull {it.l}?:return null
-   letters.filter {it.l>=dot.r-1}.also {if(it.size !in 1..3)return null}
+   // Digits right after the dot, up to the first wide gap: a neighbouring label may follow ("Poz. 14  Poz").
+   val after=letters.filter {it.l>=dot.r-1}
+   val run=mutableListOf(after.firstOrNull()?:return null)
+   for(letter in after.drop(1)){if(letter.l-run.last().r<=height*.6)run.add(letter) else break}
+   // A digit touching the right edge may be cut ("Poz. 1|4" read as 1): refuse instead of guessing.
+   // Thin remnants of a cut digit are not "letters", so any ink on the text line at the edge counts.
+   if(run.last().r>=w||parts.any {it.r>=w&&it.l>run.last().l&&it.l-run.last().r<=height*.6&&it.b>=baseline-height&&it.t<=baseline})return null
+   run.takeIf {it.size in 1..3}?:return null
   } else {
    // Walk left from the rightmost letter while letters stay adjacent (gap below 0.6 × height).
    val run=mutableListOf(letters.lastOrNull()?:return null)

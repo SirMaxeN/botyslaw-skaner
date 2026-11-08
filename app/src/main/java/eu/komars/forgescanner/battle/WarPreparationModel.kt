@@ -19,16 +19,24 @@ object WarPreparationModel {
   return values.singleOrNull()?.takeIf {it in 0.0..100000.0}
  }
  fun bonuses(text:String):Pair<Double,Double>? {
-  val normalized=BattleText.normalize(text)
+  // A rival without tech shows "0% Obrażenia i 0% Zdrowie" (no plus sign); OCR may read that zero as "O"
+  // and the percent sign as "°/o" or "o/o".
+  val normalized=BattleText.normalize(text).replace(Regex("\\s*(?:°\\s*/\\s*o|o\\s*/\\s*o|0\\s*/\\s*0)(?![a-z])"),"%")
+   .replace(Regex("(?<![a-z0-9])o(\\s*%)"),"0$1")
   val amount="([0-9]+(?:[.,][0-9]+)?\\s*[kmbt]?)\\s*%"
-  if(Regex("[+]"+amount).findAll(normalized).count()!=2)return null
+  val all=Regex("(?<![0-9.,])[+]?"+amount).findAll(normalized).toList()
+  if(all.size!=2)return null
+  // Bare percentages without any trace of the bonus window are not trusted.
+  if(!Regex("premi|rywaliz|technolog|obraz|zdrow|damage|health").containsMatchIn(normalized))return null
   fun named(label:String):Double? {
-   val after=Regex("[+]"+amount+"\\s*(?:"+label+")").find(normalized)
+   val after=Regex("(?<![0-9.,])[+]?"+amount+"\\s*(?:"+label+")").find(normalized)
    val before=Regex("(?:"+label+")\\s*[+:]?\\s*"+amount).find(normalized)
    return (after?:before)?.groupValues?.get(1)?.let(BattleText::number)
   }
-  val damage=named("obrazenia|damage")?:return null
-  val health=named("zdrowie|health")?:return null
+  // The game always lists damage first, then health; use that order when OCR garbles a label.
+  val ordered=all.map {it.groupValues[1]}.map(BattleText::number)
+  val damage=named("obraz|damage")?:ordered[0]?:return null
+  val health=named("zdrow|health")?:ordered[1]?:return null
   return if(damage in 0.0..100000.0 && health in 0.0..100000.0) damage to health else null
  }
  fun memberCount(text:String):Int? {

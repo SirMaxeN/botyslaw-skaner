@@ -50,13 +50,50 @@ class SkillVisualMemory(private val context:Context) {
         for(y in 0 until 16)for(x in 0 until 16)hex.append(String.format(java.util.Locale.ROOT,"%06x",thumb.getPixel(x,y) and 0xffffff))
         if(thumb!==crop)thumb.recycle();crop.recycle()
         return JSONObject().put("hash",bits.toString()).put("r",red/64).put("g",green/64).put("b",blue/64).put("thumb",hex.toString()).put("box",2)
+            .apply {icon(frame,r)?.let {put("icon",it)}}
     }
+    /** 40×40 colour icon cut tightly around the round artwork (top 75%, above the "Poz. N" label). */
+    private fun icon(frame:Bitmap,r:Rect):String? = runCatching {
+        val slot=Rect(r);if(!slot.intersect(0,0,frame.width,frame.height)||slot.width()<6||slot.height()<6)return null
+        val pixels=IntArray(slot.width()*slot.height());frame.getPixels(pixels,0,slot.width(),slot.left,slot.top,slot.width(),slot.height())
+        val background=frame.getPixel(maxOf(0,slot.left-6),slot.centerY())
+        val t=IconThumbnails.tightBox(slot.width(),slot.height(),pixels,background)?:intArrayOf(0,0,slot.width(),slot.height())
+        val crop=Bitmap.createBitmap(frame,slot.left+t[0],slot.top+t[1],t[2]-t[0],maxOf(1,((t[3]-t[1])*.75).toInt()))
+        val scaled=Bitmap.createScaledBitmap(crop,IconThumbnails.SIZE,IconThumbnails.SIZE,true)
+        val hex=StringBuilder(IconThumbnails.SIZE*IconThumbnails.SIZE*6)
+        for(y in 0 until IconThumbnails.SIZE)for(x in 0 until IconThumbnails.SIZE)hex.append(String.format(java.util.Locale.ROOT,"%06x",scaled.getPixel(x,y) and 0xffffff))
+        if(scaled!==crop)scaled.recycle();crop.recycle()
+        hex.toString()
+    }.getOrNull()
+    /** Locally learned icons (type, hash, 40×40 icon) for the shared base on the bot server. */
+    fun exportIcons():List<Triple<String,String,String>> = prefs.all.values.mapNotNull { value -> runCatching { val o=JSONObject(value as String);val v=o.getJSONObject("visual")
+        if(v.optBoolean("shared"))null else Triple(o.getString("type"),v.getString("hash"),v.getString("icon")) }.getOrNull() }
+    /** Every stored icon (local and shared): type, hash, 40×40 icon. */
+    fun allIcons():List<Triple<String,String,String>> = prefs.all.values.mapNotNull { value -> runCatching { val o=JSONObject(value as String);val v=o.getJSONObject("visual");Triple(o.getString("type"),v.getString("hash"),v.getString("icon")) }.getOrNull() }
+    fun isShared(type:String,hash:String)=runCatching {JSONObject(prefs.getString(type+"_"+hash,null)!!).getJSONObject("visual").optBoolean("shared")}.getOrDefault(false)
+    /** Icons learned by other phones; stored like local ones but marked shared (never re-uploaded). */
+    fun importShared(type:String,hash:String,icon:String) {
+        val skill=runCatching {BattleSkill.valueOf(type)}.getOrNull()?:return
+        if(icon.length!=IconThumbnails.SIZE*IconThumbnails.SIZE*6||prefs.contains(skill.name+"_"+hash))return
+        // At most 12 per skill: drop the oldest shared one first (four artworks × a few samples).
+        val sharedKeys=prefs.all.keys.filter {it.startsWith(skill.name+"_")&&isShared(skill.name,it.removePrefix(skill.name+"_"))}
+        prefs.edit().apply {
+            if(prefs.all.keys.count {it.startsWith(skill.name+"_")}>=12)sharedKeys.firstOrNull()?.let {remove(it)}
+            putString(skill.name+"_"+hash,JSONObject().put("type",skill.name).put("visual",JSONObject().put("hash",hash).put("icon",icon).put("box",3).put("shared",true)).toString())
+        }.apply()
+    }
+    private fun learnedIcons():List<Pair<BattleSkill,String>> = prefs.all.values.mapNotNull { value -> runCatching { val o=JSONObject(value as String);BattleSkill.valueOf(o.getString("type")) to o.getJSONObject("visual").getString("icon") }.getOrNull() }
     private fun score(a:JSONObject,b:JSONObject):Int {
         val bits=java.lang.Long.bitCount(a.getString("hash").toLong() xor b.getString("hash").toLong())
         val color=listOf("r","g","b").sumOf { kotlin.math.abs(a.getInt(it)-b.getInt(it)) }
         return bits+color/8
     }
     fun recognize(signature:JSONObject):BattleSkill? {
+        // Tight, shift-tolerant icon first; the legacy thumbnail/hash only for entries without one.
+        signature.optString("icon").takeIf {it.isNotEmpty()}?.let {icon ->
+            val learned=learnedIcons()
+            if(learned.isNotEmpty())return IconThumbnails.recognizeIcon(icon,learned)
+        }
         IconThumbnails.recognize(signature.optString("thumb"),prefs.all.values.mapNotNull { value -> runCatching { val o=JSONObject(value as String);BattleSkill.valueOf(o.getString("type")) to o.getJSONObject("visual").optString("thumb") }.getOrNull() })?.let { return it }
         val scored=prefs.all.values.mapNotNull { value -> runCatching { val o=JSONObject(value as String);BattleSkill.valueOf(o.getString("type")) to score(signature,o.getJSONObject("visual")) }.getOrNull() }
             .groupBy { it.first }.map { (type,values) -> type to values.minOf { it.second } }.sortedBy { it.second }
@@ -78,14 +115,22 @@ class SkillVisualMemory(private val context:Context) {
     }
     fun remember(type:BattleSkill,raw:String,visual:JSONObject?) {
         val thumb=visual?.optString("thumb").orEmpty()
-        if(visual!=null&&thumb.isNotEmpty()) {
-            // An icon that looks like another skill's learned icon is a mislabel (e.g. Morale vs Higher Morale):
-            // store neither, and drop the conflicting entries so they cannot decide later reads.
-            val conflicts=learnedThumbs().filter { (_,other,t) -> other!=type && (IconThumbnails.distance(thumb,t)?:99.0)<12.0 }
-            if(conflicts.isNotEmpty()) { prefs.edit().apply { conflicts.forEach { remove(it.first) } }.apply(); return }
+        val icon=visual?.optString("icon").orEmpty()
+        if(visual!=null&&icon.isNotEmpty()) {
+            // An icon that looks like another skill's (e.g. Morale vs Higher Morale) is simply not stored;
+            // learned entries are never erased by a single doubtful read.
+            if((IconThumbnails.closestOther(icon,type,learnedIcons())?:99.0)<20.0) return
             val same=learnedThumbs().filter { it.second==type }
             prefs.edit().apply {
-                if(same.size>=8) remove(same.first().first)
+                if(same.size>=12) remove(same.first().first)
+                putString(type.name+"_"+visual.optString("hash"),JSONObject().put("type",type.name).put("visual",visual).toString())
+            }.apply()
+        } else if(visual!=null&&thumb.isNotEmpty()) {
+            val conflicts=learnedThumbs().filter { (_,other,t) -> other!=type && (IconThumbnails.distance(thumb,t)?:99.0)<12.0 }
+            if(conflicts.isNotEmpty()) return
+            val same=learnedThumbs().filter { it.second==type }
+            prefs.edit().apply {
+                if(same.size>=12) remove(same.first().first)
                 putString(type.name+"_"+visual.optString("hash"),JSONObject().put("type",type.name).put("visual",visual).toString())
             }.apply()
         } else if(visual!=null) prefs.edit().putString(type.name+"_"+visual.optString("hash"),JSONObject().put("type",type.name).put("visual",visual).toString()).apply()

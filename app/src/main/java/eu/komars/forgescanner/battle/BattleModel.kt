@@ -26,7 +26,7 @@ enum class Bonus(val label: String, vararg val aliases: String) {
 data class BattleProfile(val name: String, val damage: Double, val health: Double,
     val ranged: Boolean, val bonuses: Map<Bonus, Double>, val scannedAt: Long = System.currentTimeMillis(),
     val raw: String = "", val caps: Map<Bonus, Double> = emptyMap(),
-    val skills:List<EquippedSkill> = emptyList(),val pets:Int=0,val mounted:Boolean=false,val skillMastery:Double=0.0,val fairy:String="",val fairyLevel:Int=0) {
+    val skills:List<EquippedSkill> = emptyList(),val pets:Int=0,val mounted:Boolean=false,val skillMastery:Double=0.0,val fairy:String="",val fairyLevel:Int=0,val skillAscension:Int=0) {
     fun bonus(b: Bonus) = minOf(bonuses[b] ?: 0.0, caps[b] ?: Double.POSITIVE_INFINITY) / 100.0
 }
 

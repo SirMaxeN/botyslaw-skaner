@@ -25,4 +25,13 @@ class RosterEndGateTest {
    val gate=RosterEndGate();repeat(5){assertFalse(gate.add(IntArray(8192){color}))}
   }
  }
+ /** Top of the list: "X godz. temu" and avatars change ~4% of ink; that is still the top, a scrolled list is not. */
+ @Test fun topGateToleratesLiveDetailsButNotMovement() {
+  val top=IntArray(4000){if(it%3==0)40 else 230}
+  val live=top.copyOf().also {for(i in 0 until 4000 step 75)it[i]=if(it[i]==40)200 else 40}
+  val strict=RosterEndGate(1);strict.add(top);assertFalse(strict.add(live))
+  val gate=RosterEndGate(1,6);gate.add(top);assertTrue(gate.add(live))
+  val moved=IntArray(4000){if((it+1)%3==0)40 else 230}
+  val again=RosterEndGate(1,6);again.add(top);assertFalse(again.add(moved))
+ }
 }

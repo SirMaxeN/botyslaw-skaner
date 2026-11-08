@@ -290,6 +290,7 @@ class MainActivity : Activity() {
     private fun buildOptionsScreen(content: LinearLayout) {
         content.addView(action("‹ Wróć", ID_BACK, quiet = true) { showHome() })
         content.addView(text("Opcje", 27, FOREGROUND, bold = true).withTop(18))
+        content.addView(text("Wersja aplikacji: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})", 13, MUTED).withTop(4))
         content.addView(action("Pomoc — jak używać skanera", ID_HELP) {
             requestedScreen = Screen.HELP; renderScreen()
         }.withTop(18))

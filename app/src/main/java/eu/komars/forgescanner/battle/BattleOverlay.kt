@@ -52,11 +52,11 @@ class BattleOverlay(private val context: Context) {
         val crop=labelCrop(image,r,fromFraction)?:return null
         return digitMemory.read(crop).also {if(crop!==image)crop.recycle()}
     }
-    /** Private, bounded diagnostics of the one-image skill read (no screenshots). */
+    /** Bounded diagnostics of the one-image skill read (no screenshots), readable over USB in Android/data/…/files/logs. */
     private fun logQuick(slot:Int,detail:org.json.JSONObject) {
-        if(!eu.komars.forgescanner.BuildConfig.DEBUG)return
         runCatching {
-            val file=java.io.File(context.cacheDir,"quick-skills.jsonl")
+            val dir=context.getExternalFilesDir("logs")?:context.cacheDir
+            val file=java.io.File(dir,"quick-skills.jsonl")
             val lines=(if(file.exists())file.readLines().takeLast(299) else emptyList())+detail.put("slot",slot).put("at",System.currentTimeMillis()).toString()
             file.writeText(lines.joinToString("\n",postfix="\n"))
         }
@@ -163,7 +163,8 @@ class BattleOverlay(private val context: Context) {
         "back" to "Wyjście z broni — punkt POZA oknem broni", "close" to "Zamknij informacje postaci — czerwony przycisk")
 
     fun isConfigured()=ready("self") && (context.applicationContext as eu.komars.forgescanner.ScannerApplication).warOverlay.configurationReady()
-    fun startInitialScan() {show("self");ownHomeKnown=true;side="self";scan()}
+    /** End of the full setup: nothing is scanned until the user chooses a scan. */
+    fun configurationDone() {show("self");ownHomeKnown=true;status?.text="Konfiguracja zakończona. Wybierz Skanuj moje, gdy chcesz odczytać postać.";refreshChrome()}
     private fun continueSetup() {
         if(ready("self")) (context.applicationContext as eu.komars.forgescanner.ScannerApplication).warOverlay.start(false,true)
         else beginSide("self",true)
@@ -653,7 +654,7 @@ class BattleOverlay(private val context: Context) {
         if(width<=0 || height<=0) { fail("Ustaw pola ponownie"); return }
         capturedText.cancel();skillGate.cancel();afterHeader=null;clearProfileSnapshot();headerPending=0;headerReadable=false
         generation++; active=true; setup=false; session=null
-        fairyScan=JSONObject();name=""; damage=""; health=""; weapon=""; damageRaw="";healthRaw="";headerRaw="";skillScans=org.json.JSONArray();skillEvidence.clear();texts.clear(); previous=""; repeats=0; passes=0;listMoved=false;listAttempt=0;seenBonusKeys.clear()
+        skillAscensionRead=null;fairyScan=JSONObject();name=""; damage=""; health=""; weapon=""; damageRaw="";healthRaw="";headerRaw="";skillScans=org.json.JSONArray();skillEvidence.clear();texts.clear(); previous=""; repeats=0; passes=0;listMoved=false;listAttempt=0;seenBonusKeys.clear()
         status?.text="Skanuję ${if(side=="self") "moją postać" else "przeciwnika"}. Nie dotykaj gry."
         arm { if(side=="self") {if(ownHomeKnown)tap("open"){readHeader()}else confirmOwnHome {ownHomeKnown=true;tap("open"){readHeader()}}} else readHeader() }
     }
@@ -775,9 +776,22 @@ class BattleOverlay(private val context: Context) {
         val crop=IntArray(r.width()*r.height());image.getPixels(crop,0,r.width(),r.left,r.top,r.width(),r.height())
         return EquipmentSlotPresence.isEmpty(r.width(),r.height(),crop,eu.komars.forgescanner.model.PixelRegion(0,0,r.width(),r.height()),background)
     }
+    /** Ascension stars under the three skill icons; one level for all skills, so all read slots must agree. */
+    private var skillAscensionRead:Int?=null
+    private fun readSkillAscension(image:Bitmap,layout:BattleSetupGeometry.Layout) {
+        if(!layout.profile)return
+        val counts=(1..3).mapNotNull {i->val q=layout.regions["skill$i"]?:return@mapNotNull null
+            val band=Rect(q.left+q.width/2-q.width*7/10,q.bottom-q.height/3,q.left+q.width/2+q.width*7/10,q.bottom+q.height*7/10)
+            if(!band.intersect(0,0,image.width,image.height)||band.isEmpty)return@mapNotNull null
+            val px=IntArray(band.width()*band.height());image.getPixels(px,0,band.width(),band.left,band.top,band.width(),band.height())
+            AscensionStars.count(band.width(),band.height(),px,q.width*q.height)}
+        skillAscensionRead=AscensionStars.agreed(counts)
+    }
     private fun snapshotProfile(image:Bitmap) {
-        if(borrowedPanel) {
-            val layout=batchLayout?:detector.observe(image);val p=layout.panel
+        // The single fight (1 na 1) uses the same first-frame reads as clan scans: quick skills, levels, stars, pets, mount.
+        run {
+            val layout=if(borrowedPanel)batchLayout?:detector.observe(image) else detector.observe(image);val p=layout.panel
+            runCatching {readSkillAscension(image,layout)}
             if(layout.profile&&p!=null) {
                 val bg=image.getPixel((p.left+maxOf(3,p.width/50)).coerceIn(0,image.width-1),(p.top+p.height/2).coerceIn(0,image.height-1))
                 fun presence(key:String):Boolean? {val q=layout.regions[key]?:return null;if(q.left<0||q.top<0||q.right>image.width||q.bottom>image.height)return null
@@ -809,6 +823,24 @@ class BattleOverlay(private val context: Context) {
             }
         }
     }
+    /**
+     * "Poz. N" under a skill icon. The slot box shifts between profiles, so the crop is centred on the
+     * real round icon (tight box) and placed on the row with the most white text; ascension stars move
+     * the icon and label up. Tested on 2026-11-08 captures: 39 read, 0 wrong (old fixed crop cut "Poz. 14" to 1).
+     */
+    private fun skillLabelRect(image:Bitmap,q:eu.komars.forgescanner.model.PixelRegion):Rect? {
+        val slot=Rect(q.left,q.top,q.right,q.bottom);if(!slot.intersect(0,0,image.width,image.height)||slot.width()<6||slot.height()<6)return null
+        val px=IntArray(slot.width()*slot.height());image.getPixels(px,0,slot.width(),slot.left,slot.top,slot.width(),slot.height())
+        val tb=IconThumbnails.tightBox(slot.width(),slot.height(),px,image.getPixel(maxOf(0,slot.left-6),slot.centerY()))
+        val cx=if(tb==null)slot.centerX() else slot.left+(tb[0]+tb[2])/2
+        val half=((if(tb==null)slot.width() else tb[2]-tb[0])*.85).toInt()
+        val x0=maxOf(0,cx-half);val x1=minOf(image.width,cx+half);if(x1-x0<8)return null
+        val y0=maxOf(0,q.bottom-(q.height*.7).toInt());val y1=minOf(image.height,q.bottom+(q.height*.6).toInt())
+        var bestY=-1;var bestN=0;val row=IntArray(x1-x0)
+        for(y in y0 until y1){image.getPixels(row,0,row.size,x0,y,row.size,1);val n=row.count {minOf(it ushr 16 and 255,it ushr 8 and 255,it and 255)>=205};if(n>bestN){bestN=n;bestY=y}}
+        val center=if(bestY<0)q.bottom else bestY;val band=(q.height*.24).toInt()
+        return Rect(x0,maxOf(0,center-band),x1,minOf(image.height,center+band)).takeIf {it.height()>6}
+    }
     private fun captureQuickSkills(image:Bitmap,layout:BattleSetupGeometry.Layout) {
         val bounds=Rect(0,0,image.width,image.height)
         for(at in 0..2) {
@@ -833,8 +865,8 @@ class BattleOverlay(private val context: Context) {
                 if(crop!==image)crop.recycle()
             }
             if(type==null){logQuick(at,JSONObject().put("result","icon").put("error",wiki?.error?:-1).put("margin",wiki?.margin?:-1).put("learned",visualMemory.nearest(signature)));continue}
-            val label=Rect(q.left-q.width/10,q.bottom-q.height/6,q.right+q.width/10,q.bottom+q.height/2)
-            if(!bounds.contains(label)){logQuick(at,JSONObject().put("result","label-bounds"));continue}
+            val label=skillLabelRect(image,q)
+            if(label==null||!bounds.contains(label)){logQuick(at,JSONObject().put("result","label-bounds"));continue}
             val crop=Bitmap.createBitmap(image,label.left,label.top,label.width(),label.height())
             val learnCopy=crop.copy(Bitmap.Config.ARGB_8888,false)
             val font=digitMemory.read(crop)?.takeIf {it in 1..100}
@@ -928,7 +960,9 @@ class BattleOverlay(private val context: Context) {
             if(signature.isBlank()) { retryList(); return@read }
             repeats=if(signature==previous) repeats+1 else 0
             previous=signature; passes++
-            if(repeats>=1) { if(listMoved) readWeapon() else confirmUnmovedList(); return@read }
+            // A short list fits the box and cannot move: the same few bonuses read twice are the whole list
+            // (2026-11-08: SroczkinssPL with 6 bonuses failed four war-scan rounds here).
+            if(repeats>=1) { if(listMoved||parsed.size in 1..ShortBonusList.MAX) readWeapon() else confirmUnmovedList(); return@read }
             if(passes>=8) { retryList();return@read }
             scrollList(false) { readList() }
         }
@@ -941,7 +975,7 @@ class BattleOverlay(private val context: Context) {
         rewindList()
     }
     private fun confirmUnmovedList() {
-        if(borrowedPanel){fail("Nie potwierdzono końca listy bonusów.");return}
+        // War scans ask too, instead of failing the profile and repeating the whole roster walk.
         val token=generation
         status?.text="Lista nie przesunęła się. Sprawdź ramkę i koniec listy."
         val prompt=AlertDialog.Builder(android.view.ContextThemeWrapper(context,eu.komars.forgescanner.R.style.ScannerDialogTheme)).setTitle("Nie potwierdzono przewinięcia")
@@ -1265,6 +1299,7 @@ class BattleOverlay(private val context: Context) {
         if(borrowedPanel)draft.put("_sections",JSONObject(batchSections.toString()))
         if(batchPets!=null)draft.put("pets",batchPets)
         if(batchMounted!=null)draft.put("mounted",batchMounted)
+        skillAscensionRead?.let {draft.put("skillAscension",it)}
         if(borrowedPanel)batchResume?.let {old ->
             for(key in listOf("name","damage","health","weapon","raw","headerRaw","damageRaw","healthRaw"))if(draft.optString(key).isBlank()&&old.optString(key).isNotBlank())draft.put(key,old.get(key))
             if(draft.optString("raw").isNotBlank()&&texts.isEmpty()&&old.has("bonuses"))draft.put("bonuses",old.get("bonuses"))
@@ -1284,9 +1319,8 @@ class BattleOverlay(private val context: Context) {
         status?.text="Skan gotowy. Sprawdź dane w oknie nad grą.";refreshChrome()
         if(side=="opponent") dialogs.acceptOpponent { status?.text="Przeciwnik odczytany. Wybierz rodzaj walki.";refreshChrome();dialogs.chooseBattle() }
         else dialogs.review(side) {
+            // Clan tech is read only by "Odczyt listy wojennej", never after a character scan.
             status?.text="Moja postać zapisana. Otwórz przeciwnika w grze i wybierz Skanuj przeciwnika."
-            val app=context.applicationContext as eu.komars.forgescanner.ScannerApplication
-            if(app.mobile.paired && context.getSharedPreferences("war_preparation_v1",0).getLong("researchAt",0)==0L) app.warOverlay.start(false)
         }
     }
 }

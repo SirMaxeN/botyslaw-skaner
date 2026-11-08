@@ -13,6 +13,7 @@ import eu.komars.forgescanner.sync.MobileSyncClient
 private const val SETUP_SCHEMA = 2
 
 class ScannerApplication : Application() {
+    val knowledge by lazy { eu.komars.forgescanner.sync.SharedKnowledgeSync(this, mobile) }
     var session = ScanSession()
         private set
     lateinit var overlay: OverlayController
@@ -116,6 +117,8 @@ class ScannerApplication : Application() {
         }.start()
         calibrations = CalibrationStore(this)
         mobile = MobileSyncClient(this, demoMode = { demo })
+        // Shared reading knowledge from the bot server: new installs and updates start trained.
+        knowledge.syncAsync(force=true)
         if(mobile.paired) eu.komars.forgescanner.model.ResourceDraftStore(this).load(mobile.name.orEmpty())?.let {session=it}
         watchResourceDraft()
         overlay = OverlayController(this, { session }, flow, calibrations)

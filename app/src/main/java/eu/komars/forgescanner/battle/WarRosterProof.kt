@@ -18,7 +18,8 @@ internal object WarRosterProof {
   * "PolskaMoc(_PL_J" and "PolskaMOC[_PL_]" both mean "PolskaMoc[PL]". Only a trailing tag is rewritten.
   */
  fun displayName(raw:String):String {
-  val match=Regex("""^(.*?)\s*[\[(]\s*_*\s*([A-Za-z0-9]{1,6})\s*_*\s*[\])Jj|]?\s*$""").find(raw.trim())
+  // A lost closing bracket is often read as "J" ("PolskaMoc(PLJ"): the tag stops before a final J/j/|/).
+  val match=Regex("""^(.*?)\s*[\[(]\s*_*\s*([A-Za-z0-9]{1,6}?)\s*_*\s*[\])Jj|]?\s*$""").find(raw.trim())
    ?:Regex("""^(.*?[A-Za-z0-9])_+([A-Z0-9]{1,6})_+[\])Jj|]\s*$""").find(raw.trim())?:return raw.trim()
   val name=match.groupValues[1].trim();val tag=match.groupValues[2].uppercase()
   return if(name.isEmpty())raw.trim() else "$name[$tag]"

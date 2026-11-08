@@ -3,6 +3,9 @@ import org.json.*
 import java.util.concurrent.CancellationException
 import kotlin.random.Random
 
+/** Clan war battles last 120 s (GuildWarConfig/PvpBaseConfig GuildWarBattleMatchTimerSeconds, game data 2026-10-08); arena is 60 s. */
+private val WAR_RULES=PvpRules(seconds=120.0)
+
 internal class FullWarComputation(private val store:FullWarStore) {
  fun run(ours:List<WarMember>,enemies:List<WarMember>,profiles:(Boolean,WarMember)->JSONObject?,own:WarBonus,rival:WarBonus,cancelled:()->Boolean,progress:(Int,Int)->Unit):JSONObject {
   val a=ours.map {profiles(false,it)};val b=enemies.map {profiles(true,it)}
@@ -10,13 +13,13 @@ internal class FullWarComputation(private val store:FullWarStore) {
   val digestA=a.map {it?.let {FullWarStore.hash(it.toString())}};val digestB=b.map {it?.let {FullWarStore.hash(it.toString())}}
   fun compute(i:Int,j:Int,n:Int):JSONObject {
    if(cancelled())throw CancellationException()
-   val key=FullWarStore.hash("${FullWarStore.MODEL}|${digestA[i]}|${digestB[j]}|$own|$rival")
+   val key=FullWarStore.hash("${FullWarStore.MODEL}|war120|${digestA[i]}|${digestB[j]}|$own|$rival")
    store.pair(key)?.takeIf {it.optInt("trials")>=n||it.has("error")}?.let {return it}
    val out=JSONObject().put("savedAt",System.currentTimeMillis())
    if(a[i]==null||b[j]==null)return out.put("error","Niekompletny profil gracza.")
    try {
     // Season 2026-11 Tira converts health into the Damage multiplier, already in the displayed damage.
-    val result=PvpBattleEngine.simulate(FullProfileCodec.profile(a[i]!!),FullProfileCodec.profile(b[j]!!),own,rival,n,Random(key.hashCode()),shouldStop=cancelled)
+    val result=PvpBattleEngine.simulate(FullProfileCodec.profile(a[i]!!),FullProfileCodec.profile(b[j]!!),own,rival,n,Random(key.hashCode()),rules=WAR_RULES,shouldStop=cancelled)
     out.put("wins",result.wins).put("losses",result.losses).put("draws",result.draws).put("trials",result.count)
    }catch(e:CancellationException){throw e}catch(e:IllegalArgumentException){out.put("error",e.message?:"Nieobsługiwany efekt.")}
    store.pair(key,out);return out
@@ -37,12 +40,12 @@ internal class FullWarComputation(private val store:FullWarStore) {
   val none=WarBonus(0.0,0.0);val matrix=JSONArray();val total=members.size*(members.size-1)/2;var done=0
   for(i in members.indices)for(j in i+1 until members.size) {
    if(cancelled())throw CancellationException()
-   val key=FullWarStore.hash("ranking|${FullWarStore.MODEL}|${digest[i]}|${digest[j]}|$trials")
+   val key=FullWarStore.hash("ranking|${FullWarStore.MODEL}|war120|${digest[i]}|${digest[j]}|$trials")
    val cached=if(digest[i]!=null&&digest[j]!=null)store.pair(key)else null
    val out=cached?:JSONObject().put("savedAt",System.currentTimeMillis()).also {out->
     if(p[i]==null||p[j]==null)out.put("error","Niekompletny profil gracza.")
     else try {
-     val result=PvpBattleEngine.simulate(FullProfileCodec.profile(p[i]!!),FullProfileCodec.profile(p[j]!!),none,none,trials,Random(key.hashCode()),shouldStop=cancelled)
+     val result=PvpBattleEngine.simulate(FullProfileCodec.profile(p[i]!!),FullProfileCodec.profile(p[j]!!),none,none,trials,Random(key.hashCode()),rules=WAR_RULES,shouldStop=cancelled)
      out.put("wins",result.wins).put("losses",result.losses).put("draws",result.draws).put("trials",result.count)
     }catch(e:CancellationException){throw e}catch(e:IllegalArgumentException){out.put("error",e.message?:"Nieobsługiwany efekt.")}
     if(p[i]!=null&&p[j]!=null)store.pair(key,out)

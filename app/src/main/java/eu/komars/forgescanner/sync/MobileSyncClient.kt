@@ -77,6 +77,9 @@ class MobileSyncClient(context: Context, private val demoMode: () -> Boolean = {
         val credential=settings.getString("credential",null)
         execute(callback) { post("clan-ranking",payload,token(credential)).toString() }
     }
+    /** Shared reading knowledge (icons, digits) and profile backup; blocking, call from a worker thread. */
+    fun learningBlocking(payload:JSONObject):JSONObject = post("learning",payload,token(settings.getString("credential",null)),6*1024*1024).also { it.optString("error").takeIf { e->e.isNotEmpty() }?.let { e->error(e) } }
+    fun profilesBlocking(payload:JSONObject):JSONObject = post("profiles",payload,token(settings.getString("credential",null)),6*1024*1024)
     fun disconnect() { synchronized(settings) { pairingEpoch.incrementAndGet(); settings.edit().clear().apply() } }
 
     private fun token(credential: String?): String {
@@ -97,7 +100,7 @@ class MobileSyncClient(context: Context, private val demoMode: () -> Boolean = {
         }
     }
 
-    private fun post(route: String, payload: JSONObject, credential: String?): JSONObject {
+    private fun post(route: String, payload: JSONObject, credential: String?, maxBytes: Int = 8192): JSONObject {
         check(!demoMode()) { "Tryb DEMO blokuje połączenia z serwerem bota." }
         testTransport?.let { return it(route, payload, credential) }
         val connection = URL("https://komars.eu/discord/botyslaw-smith/mobile/$route").openConnection() as HttpsURLConnection
@@ -116,7 +119,7 @@ class MobileSyncClient(context: Context, private val demoMode: () -> Boolean = {
                 while (true) {
                     val length = input.read(buffer)
                     if (length < 0) break
-                    require(bytes.size() + length <= 8192) { "Odpowiedź serwera jest za duża." }
+                    require(bytes.size() + length <= maxBytes) { "Odpowiedź serwera jest za duża." }
                     bytes.write(buffer, 0, length)
                 }
             }

@@ -122,9 +122,9 @@ class BattleActivity: Activity() {
                     listButton.isEnabled=true;rankingButton.isEnabled=true
                     result.fold({
                         val s=JSONObject(it);status=s
-                        val locked=open&&s.optBoolean("locked")
+                        val locked=open&&s.optBoolean("locked")&&!s.optBoolean("can_override")
                         listButton.isEnabled=!locked
-                        listButton.text=if(locked) "Lista na tę wojnę już utworzona" else "Odczyt listy wojennej"
+                        listButton.text=if(locked) "Lista na tę wojnę już utworzona" else if(open&&s.optBoolean("locked")) "Odczyt listy wojennej (zarząd: aktualizacja)" else "Odczyt listy wojennej"
                         listButton.contentDescription=if(locked) "Lista na tę wojnę została już utworzona na tym serwerze Discorda. Nie nadpisujemy jej." else "Odczyt listy wojennej"
                         val list=ago(s.optString("list_updated_at"))?.let {"$it${if(s.optBoolean("list_sunday")) " (niedzielna, zablokowana)" else ""}"}?:"brak"
                         val ranking=ago(s.optString("ranking_updated_at"))?.let {"$it (${s.optInt("ranking_members")} graczy)"}?:"brak"
@@ -148,18 +148,24 @@ class BattleActivity: Activity() {
             .setMessage("To tylko aktualizacja danych — trwa około 30 minut (profile wszystkich członków klanu).\n\n" +
                 "Aktualny ranking jest już dostępny dla wszystkich na Discordzie: /report → Ranking klanu" +
                 (last?.let {" (zaktualizowany $it)."}?:".") +
-                "\n\nUruchamiaj tylko, gdy dane są nieaktualne. Niezmienione profile z ostatnich 7 dni nie są czytane ponownie.")
+                "\n\nUruchamiaj tylko, gdy dane są nieaktualne. Niezmienione profile z ostatnich 30 dni nie są czytane ponownie.")
             .setPositiveButton("Aktualizuj") {_,_ -> prepare("clan-ranking")}
             .setNegativeButton("Anuluj",null).show()
     }
     private fun confirmWarList(status:JSONObject?) {
         val open=WarPreparationModel.day()!=null
+        if(open&&status?.optBoolean("locked")==true&&status.optBoolean("can_override")) {
+            AlertDialog.Builder(this).setTitle("Aktualizacja listy wojennej")
+                .setMessage("Niedzielna lista już istnieje. Jako zarząd możesz zrobić nowy odczyt — na końcu zapytam, czy zastąpić listę na Discordzie. Odczyt trwa około godziny (niezmienione profile są pomijane).")
+                .setPositiveButton("Odczytaj") {_,_ -> prepare("war-list")}.setNegativeButton("Anuluj",null).show();return
+        }
         if(open&&status?.optBoolean("locked")==true) {message("Lista na tę wojnę została już utworzona w niedzielę. Nie tworzymy nowej — sprawdź /report → Lista wojenna na Discordzie.");return}
         val last=ago(status?.optString("list_updated_at"))
         AlertDialog.Builder(this).setTitle("Odczyt listy wojennej")
             .setMessage("Aktualizacja trwa około godziny (profile obu klanów).\n\n" +
                 (if(open) "Niedziela: lista tworzona jest tylko raz. Po zapisie nikt jej nie nadpisze aż do końca wojny." else "Poza niedzielą rywal dostaje takie same bonusy jak nasz klan. W niedzielę listę można utworzyć tylko raz.") +
-                "\n\nAktualna lista jest dostępna dla wszystkich na Discordzie: /report → Lista wojenna" +
+                (if(open) "\n\nOficjalna lista jest dostępna dla wszystkich na Discordzie: /start → Lista wojenna lub /report war-list"
+                 else "\n\nLista poglądowa będzie na Discordzie w /report war-list-preview, a do czatu gry skopiujesz ją przez /copy war-list") +
                 (last?.let {" (zaktualizowana $it)."}?:" (jeszcze jej nie ma)."))
             .setPositiveButton(if(open) "Utwórz listę" else "Aktualizuj") {_,_ -> prepare("war-list")}
             .setNegativeButton("Anuluj",null).show()

@@ -1,5 +1,44 @@
 # Change log
 
+## 1.4.6 (43) — Google Play hotfix / AUTO Test 86
+
+- A war-list or ranking run left for more than 2 hours (e.g. overnight) is not resumed: members' powers changed, so the saved roster did not match the screen and the scan stopped with "Nie udało się potwierdzić tożsamości na bieżącym widoku" (2026-11-08, 1.4.5). Saved profiles are kept; the member list is read anew.
+- Top of the clan member list is recognised with 6% tolerance (changing "X godz. temu", avatars, highlight) instead of 2%, so the scan no longer rewinds up to eight times when it is already at the top. The end-of-list check stays strict.
+- Clan membership changes (someone left, joined or was swapped): on resume a changed member count re-reads that side's list, and a list that no longer matches the screen is rebuilt once from the top instead of stopping. Saved profiles of remaining members are kept; Discord ranking and list always reflect the latest read.
+- Management list update asks "Zaktualizuj i pinguj / Zaktualizuj / Nie aktualizuj": the silent option replaces the list without the @everyone notice (bot update required).
+- Hints point to the new bot commands: official list `/report war-list` (Sunday only), previews `/report war-list-preview`, game chat copy `/copy war-list`.
+
+## 1.4.5 (42) — Google Play / AUTO Test 85
+
+- Skill icons are recognised without opening the window again. Cause found on real scan captures (Sunday 2026-11-08): the fixed slot box shifts a few pixels between profiles, so 16×16 thumbnails of the same skill were 25–80 apart while different skills were 35+, and nothing ever matched; the conflict rule also erased what was learned.
+- New icon fingerprint: tight box around the round artwork, 40×40, compared with the best offset within ±4 px. On 27 captured icons: 23 recognised, 0 wrong, 4 left to the detail window. A doubtful icon is no longer erased, only not stored.
+- War scan: a short bonus list that fits the box (≤6 bonuses, cannot scroll) is accepted as complete. Before, the war scan failed such profiles ("Nie potwierdzono końca listy bonusów") and repeated the whole roster walk three times (SroczkinssPL, 2026-11-08). Longer unmoved lists now ask "Widzę całą listę / Popraw pole" instead of failing.
+- "Poz. N" under skill icons: the crop is centred on the real icon and placed on the white text row (ascension stars move it up); a digit cut by the crop edge is refused instead of read as "1". On 2026-11-08 captures: 39 read, 0 wrong (before: two-digit levels such as "Poz. 14" were read as 1).
+- Skill ascension stars (1–3, one level for all skills) are counted under the skill icons and stored as `skillAscension`; the battle engine multiplies skill damage and healing by ×50 / ×2500 / ×125 000 (AscensionConfigsLibrary Skills, game data 2026-10-08). Counted only when all three skill slots agree.
+- War simulations (war list and clan ranking) use 120 s war battles (GuildWarBattleMatchTimerSeconds) instead of the 60 s arena default; cached pair results are recomputed.
+- Management (roles from /setup → Role zarządu, or administrators) can redo the Sunday war list: the start screen keeps the button, and at the end the app asks "Zaktualizować listę wojenną?" before replacing it (bot update required).
+- Clan tag with the closing bracket read as "J" ("PolskaMoc(PLJ", "LeChauvin(HEXAJ") becomes "[PL]" / "[HEXA]" instead of "[PLJ]".
+- Shared reading knowledge: learned skill icons and game-font digits are synced with the bot server (`/mobile/learning`) at start and after scans; every phone downloads what others learned, so updates and new installs start trained. Up to 12 icons per skill (four star artworks) and 40 samples per digit; only icons that differ from the known ones are uploaded.
+- Profile backup: complete profiles are also saved on the bot server per Discord server (`/mobile/profiles`); before opening members of a roster page, the app fetches profiles it has nothing for (same clan, nickname, power ±0.6%).
+- Profiles with unchanged power are reused for 30 days instead of 7 (seasons can change rules, so not forever).
+- Single fight (1 na 1) scans use the same first-frame reads as clan scans: skills and "Poz. N" without opening windows, ascension stars, pets and mount pre-filled for review.
+- The one-image skill read log (`quick-skills.jsonl`) is written in the store build too, to `Android/data/<package>/files/logs`.
+
+## 1.4.4 (41) — Google Play / AUTO Test 84 (code 40 was already used by an earlier 1.4.3 upload)
+
+- Rival war bonus: read in three contrast variants; "°/o" accepted as "%"; when exactly two percentages are in the window they are taken in game order (damage, health) even if OCR garbles a label. A failure now shows the text that was read.
+- Options show the app version.
+- The war/ranking event log is also written to `Android/data/<package>/files/logs`, readable over USB from the store build.
+- If the rival bonus still cannot be read, a window asks for the two numbers (with or without "%").
+
+- Setup only configures: after the battle/war field setup the app returns to the game's home screen and stops ("Konfiguracja zakończona"); it no longer scans the character automatically.
+- Clan tech is read only by "Odczyt listy wojennej"; approving a character scan no longer starts a tech read.
+- Every saved war/ranking profile is also written as readable JSON to `Android/data/<package>/files/profiles` (one file per member), so scans can be recovered over USB even from the store build. Profiles saved before this version are exported once on first start.
+
+## 1.4.2 (39) — Google Play hotfix / AUTO Test 82
+
+- Rival war bonus: a rival without tech shows "0% Obrażenia i 0% Zdrowie" (no plus sign), which stopped Sunday step 6 with "Nie odczytano obu nazwanych bonusów rywala". Zeros, unsigned values and an OCR "O%" are accepted.
+
 ## 1.4.1 (38) — Google Play hotfix
 
 - The app opens on the main menu again (1.4.0 Play started on the resource screen).

@@ -31,13 +31,13 @@ internal object FullProfileCodec {
    }
   }
   require(draft.has("pets")&&draft.optInt("pets",-1) in 0..3&&draft.has("mounted")) {"Nie potwierdzono zwierzaków lub wierzchowca."}
-  return JSONObject(draft.toString()).put("name",expected).put("damage",damage).put("health",health).put("ranged",ranged).put("skills",skills).put("skillsReviewed",true).put("pets",draft.getInt("pets")).put("mounted",draft.getBoolean("mounted")).put("skillMastery",0.0).put("bonuses",bonuses).put("fairy",fairy).apply {remove("skillScans")}
+  return JSONObject(draft.toString()).put("name",expected).put("damage",damage).put("health",health).put("ranged",ranged).put("skills",skills).put("skillsReviewed",true).put("pets",draft.getInt("pets")).put("mounted",draft.getBoolean("mounted")).put("skillMastery",0.0).put("skillAscension",draft.optInt("skillAscension",0).coerceIn(0,3)).put("bonuses",bonuses).put("fairy",fairy).apply {remove("skillScans")}
  }
  fun profile(o:JSONObject):BattleProfile {
   val values=o.optJSONObject("bonuses");val raw=o.optString("raw")
   return BattleProfile(o.getString("name"),o.getDouble("damage"),o.getDouble("health"),o.getBoolean("ranged"),
    BattleText.completeBonuses(raw,Bonus.entries.filter {values?.has(it.name)==true}.associateWith {values!!.getDouble(it.name)}),o.optLong("scannedAt"),raw,BattleText.caps(raw),
    (0 until o.getJSONArray("skills").length()).map {i->val e=o.getJSONArray("skills").getJSONObject(i);EquippedSkill(BattleSkill.valueOf(e.getString("type")),e.getInt("level"))},
-   o.getInt("pets"),o.getBoolean("mounted"),o.optDouble("skillMastery",0.0),o.optJSONObject("fairy")?.optString("type").orEmpty(),o.optJSONObject("fairy")?.optInt("level",0)?:0)
+   o.getInt("pets"),o.getBoolean("mounted"),o.optDouble("skillMastery",0.0),o.optJSONObject("fairy")?.optString("type").orEmpty(),o.optJSONObject("fairy")?.optInt("level",0)?:0,o.optInt("skillAscension",0).coerceIn(0,3))
  }
 }
