@@ -11,6 +11,7 @@ class GameDigitMemory(context:Context) {
  companion object {
   /** Set by ScannerApplication so readers without a Context (resource counters) can use the font. */
   @Volatile var shared:GameDigitMemory?=null
+   set(value) {field=value;eu.komars.forgescanner.model.CounterConfirmations.listener=value?.let {memory->{key,confirmed->memory.confirmCounter(key,confirmed)}}}
  }
  private val prefs=context.getSharedPreferences("game_digit_font_v1",0)
  private val bundled:List<GameDigitFont.Sample> by lazy {

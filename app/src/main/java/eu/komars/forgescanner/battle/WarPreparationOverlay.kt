@@ -351,12 +351,13 @@ class WarPreparationOverlay(private val context:Context) {
   val observed=eu.komars.forgescanner.model.WarScreenGeometry.observe(ww,hh,p)
   fun scaled(r:eu.komars.forgescanner.model.PixelRegion)=Rect(r.left*width/ww,r.top*height/hh,r.right*width/ww,r.bottom*height/hh)
   val fields=mutableMapOf<String,Rect>();val states=mutableSetOf<String>()
-  if(observed.roster!=null) {
-   states+="roster";fields["roster"]=scaled(observed.roster);observed.rosterClose?.let {fields["rosterClose"]=scaled(it)}
-  } else if(observed.ok!=null) {
-   states+="bonus";fields["infoOk"]=scaled(observed.ok);observed.bonusText?.let {fields["rivalText"]=scaled(it)}
-  } else if(observed.research!=null) {
-   states+="researchModal";fields["researchText"]=scaled(eu.komars.forgescanner.model.ResearchWindowGeometry.description(observed.research));observed.researchClose?.let {fields["researchClose"]=scaled(it)}
+  val observedRoster=observed.roster;val observedOk=observed.ok;val observedResearch=observed.research
+  if(observedRoster!=null) {
+   states+="roster";fields["roster"]=scaled(observedRoster);observed.rosterClose?.let {fields["rosterClose"]=scaled(it)}
+  } else if(observedOk!=null) {
+   states+="bonus";fields["infoOk"]=scaled(observedOk);observed.bonusText?.let {fields["rivalText"]=scaled(it)}
+  } else if(observedResearch!=null) {
+   states+="researchModal";fields["researchText"]=scaled(eu.komars.forgescanner.model.ResearchWindowGeometry.description(observedResearch));observed.researchClose?.let {fields["researchClose"]=scaled(it)}
   } else {
    if(BattleHomeProof.isHome(ww,hh,p)||(homeFallback&&BattleHomeProof.isHome(image))) {
     states+="home"

@@ -16,7 +16,7 @@ class WarSceneRegressionTest {
   assertFalse(BattleHomeProof.isHome(f.w,f.h,f.p))
   val observed=WarScreenGeometry.observe(f.w,f.h,f.p)
   assertNotNull(observed.footerClose);assertNotNull(observed.info)
-  assertTrue("${observed.info}",observed.info!!.left>f.w*.9 && observed.info.top in 225..255)
+  assertTrue("${observed.info}",observed.info!!.left>f.w*.9 && observed.info!!.top in 225..255)
  }
  @Test fun actualCharacterHomeRequiresEquipmentProofAndNoOpenCloseControl() {
   val f=frame(35)
@@ -28,7 +28,7 @@ class WarSceneRegressionTest {
   val own=WarScreenGeometry.observe(a.w,a.h,a.p);val other=WarScreenGeometry.observe(b.w,b.h,b.p)
   assertNotNull("Own clan viewport",own.roster);assertNotNull("Enemy clan viewport",other.roster)
   assertNotNull(own.rosterClose);assertNotNull(other.rosterClose)
-  assertTrue(kotlin.math.abs(own.roster!!.top-other.roster!!.top)<=4);assertTrue(kotlin.math.abs(own.roster.bottom-other.roster.bottom)<=4)
+  assertTrue(kotlin.math.abs(own.roster!!.top-other.roster!!.top)<=4);assertTrue(kotlin.math.abs(own.roster!!.bottom-other.roster!!.bottom)<=4)
   assertNull(own.ok);assertNull(other.ok)
   assertFalse(BattleHomeProof.isHome(a.w,a.h,a.p));assertFalse(BattleHomeProof.isHome(b.w,b.h,b.p))
  }
@@ -36,7 +36,7 @@ class WarSceneRegressionTest {
   val f=frame(31);val s=WarScreenGeometry.observe(f.w,f.h,f.p)
   assertNotNull("Bonus text proposal",s.bonusText);assertNotNull("Actual blue OK",s.ok)
   assertTrue(s.bonusText!!.bottom<s.ok!!.top)
-  assertTrue("${s.ok}",s.ok.left in 110..135 && s.ok.top in 395..425)
+  assertTrue("${s.ok}",s.ok!!.left in 110..135 && s.ok!!.top in 395..425)
   assertNull(s.roster);assertNull(s.research);assertNull(s.info)
   assertFalse(BattleHomeProof.isHome(f.w,f.h,f.p))
  }

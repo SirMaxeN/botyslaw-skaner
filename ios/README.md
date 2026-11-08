@@ -7,7 +7,7 @@ Zakres: **skan zasobów** i **symulacja walki 1 na 1**. Bez listy wojennej i ran
 Gracz włącza nagrywanie ekranu przez Botysława, a aplikacja prowadzi go powiadomieniami z dźwiękiem.
 
 ## Stan
-To szkielet. Pliki Swift zawierają tylko strukturę i komentarze `TODO`. Logika analizy, czyli wykrywanie ekranów, czcionka gry i silnik walki, trafi do wspólnego modułu Kotlin Multiplatform `:shared` (Etap 1 planu). Na iOS zostanie dołączona jako `BotyslawShared.xcframework`.
+Pliki Swift to szkielety z komentarzami `TODO`. Logika analizy (wykrywanie ekranów, czcionka gry, silnik walki) jest już we wspólnym module Kotlin Multiplatform [`shared/`](../shared) (Etap 1). Na iOS dołącza się ją jako `BotyslawShared.xcframework`.
 
 ## Struktura
 | Ścieżka | Co to jest |
@@ -19,7 +19,7 @@ To szkielet. Pliki Swift zawierają tylko strukturę i komentarze `TODO`. Logika
 
 ## Jak zbudować na Macu
 1. Zainstaluj Xcode z App Store, a potem `brew install xcodegen`.
-2. Zbuduj wspólny moduł w katalogu głównym repo, gdy już powstanie (Etap 1):
+2. Zbuduj wspólny moduł w katalogu głównym repo:
    ```bash
    ./gradlew :shared:assembleBotyslawSharedXCFramework
    ```

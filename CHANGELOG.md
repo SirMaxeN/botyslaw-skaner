@@ -1,5 +1,12 @@
 # Change log
 
+## 1.5.0 (47) — Google Play
+
+No behaviour change for players; groundwork for the iOS version.
+- New Kotlin Multiplatform module `:shared` holds the platform-independent scan and battle logic (screen detection, game font, OCR consensus, scroll counting, scan steps, battle model and engine). The Android app uses it exactly as before.
+- Game number parser no longer uses BigDecimal; a parity test pins it to the previous implementation on 300k random inputs.
+- Verified: unit tests and lint three times from scratch (524 tests, 0 failures); the 1.4.9 and 1.5.0 bundles contain the same classes and method signatures apart from the intended changes.
+
 ## 1.4.9 (46) — Google Play
 
 Regression fixes from reviewing 1.4.8:

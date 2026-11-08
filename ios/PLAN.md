@@ -45,7 +45,7 @@ Ustalenia z użytkownikiem:
   - `MobileSyncClient` → na iOS `URLSession` i Keychain, z tymi samymi trasami `pair` i `resources` na `https://komars.eu/discord/botyslaw-smith/mobile/…`.
 - Testy JUnit na zrzutach `.argb` z `.local/` (fixtures) przeniosą się do `shared` jako testy commonTest i jvmTest.
 
-## Krok 0 — teraz (na prośbę użytkownika)
+## Krok 0 — ✅ zrobione 2026-11-08
 1. Zapisać plan w repo jako `botyslaw-skaner/ios/PLAN.md`.
 2. Utworzyć osobny folder `botyslaw-skaner/ios/`. To wszystko, co potem trzeba przenieść do Xcode:
    ```
@@ -69,11 +69,27 @@ Ustalenia z użytkownikiem:
    - **polska-moc-bot**: niezacommitowane zmiany (promote, copy tylko z oficjalnej listy, podgląd w niedzielę i inne);
    - **botyslaw-skaner**: wersje 1.4.6–1.4.8 (poprawki listy, przesuwany panel zasobów, changelog), a w osobnym commicie folder `ios/`.
 
-## Etap 1 — wspólny moduł `:shared` (Windows)
-- `settings.gradle.kts`: `include(":shared")`. W `shared/build.gradle.kts` używamy wtyczki `kotlin("multiplatform")` z celami `androidTarget()` lub `jvm()` oraz `iosArm64()` i `iosSimulatorArm64()`, a framework nazywa się `BotyslawShared`.
-- Przenosimy do `shared/src/commonMain` czyste pliki z listy wyżej, bez zmiany pakietów. `:app` zależy od `:shared`. Android ma działać bez żadnych zmian w zachowaniu, co potwierdzają `testDebugUnitTest`, `lintPlay` i AUTO Test.
-- Zamieniamy zależności od JVM: `Normalizer` → `expect fun stripDiacritics`, `BigDecimal` → arytmetyka na `Long` i `Double`, `String.format` → własne formatowanie, `ArrayDeque` → `kotlin.collections.ArrayDeque`, `Long.bitCount` → `countOneBits()`, czas przez `expect fun nowMillis()`.
-- Dane, których potrzebuje logika (`game_digits_v1.txt`, `battle_skills/`, wróżki `*.json`), trafiają do zasobów `shared`. Ładuje je platforma i przekazuje jako tekst.
+## Etap 1 — wspólny moduł `:shared` (Windows) — ✅ zrobione 2026-11-08
+Co powstało:
+- Moduł `shared/` (Kotlin Multiplatform 2.0.21) ma cel `jvm()`, z którego korzysta Android (`:app` zależy od `project(":shared")`), oraz cele `iosArm64()` i `iosSimulatorArm64()`. Z nich powstaje framework `BotyslawShared` (statyczny, w formie XCFramework). Na Windowsie cele iOS są pomijane dzięki `kotlin.native.ignoreDisabledTargets=true`.
+- **86 plików** czystej logiki przeniesiono przez `git mv` do `shared/src/commonMain/kotlin` bez zmiany pakietów. Obejmują rozpoznawanie ekranów, czcionkę gry, uzgadnianie OCR, liczenie przy przewijaniu, kroki skanu, model walki i `PvpBattleEngine`.
+- W `app` zostaje 14 plików czystych, ale niepotrzebnych na iOS (wojna, gesty, aktualizacja z Play), a także wszystko, co zależy od Androida.
+- Wydzielone, żeby logika nie zależała od Androida:
+  - `model/CalibrationModel.kt` (z `CalibrationStore.kt`);
+  - `vision/OcrModel.kt` (modele OCR i `OcrCandidateExtractor`, wydzielone z `OcrAnalyzer.kt`);
+  - `model/CounterConfirmations` (haczyk nauki cyfr, który ustawia `GameDigitMemory.shared`).
+- API z JVM zamienione na wspólne:
+  - `platform/Platform.kt` przez `expect/actual`: `normalizeNfd`, `nowMillis`, `formatFixed4`; wersja dla JVM to dokładnie te same wywołania co wcześniej;
+  - `platform/ExactMath.kt`: `addExact` i `multiplyExact` z tym samym algorytmem co w JDK;
+  - `GameNumberParser` bez `BigDecimal`, z dokładnym `GameDecimal`; `GameNumberParserParityTest` porównuje go ze starą wersją na 300 tys. losowych napisów;
+  - pamięć podręczna LRU w `GrayRegionFrameCache` bez `accessOrder`;
+  - `kotlin.collections.ArrayDeque`, `countOneBits()`, `kotlin.math.PI`, `kotlin.coroutines.cancellation.CancellationException`.
+- Deklaracje `internal` w `shared` stały się publiczne, żeby `:app` je widziało. Działanie się nie zmienia.
+
+**Do zrobienia na Macu przy pierwszym buildzie iOS:**
+- Uruchomić `./gradlew :shared:assembleBotyslawSharedXCFramework`. Plik `shared/src/iosMain/.../Platform.kt` nie był jeszcze kompilowany, bo Kotlin/Native dla iOS działa tylko na macOS.
+- Sprawdzić `Regex` w Kotlin/Native (lookbehind, `\p{L}`) testami `commonTest`.
+- Dane potrzebne logice (`game_digits_v1.txt`, `battle_skills/`, wróżki `*.json`) na razie zostają w `app/src/main/assets`. Na iOS trafią do pakietu aplikacji i będą przekazywane do `shared` jako tekst (Etap 4).
 
 ## Etap 2 — scenariusz z instrukcjami (shared)
 - Nowa maszyna stanów `GuidedRecordingFlow` w `shared`. Dostaje klatkę i jej wynik, a zwraca zdarzenia: `Prompt(text, sound)`, `StepDone(field, value)`, `Problem(text)`, `Finished(result)`.

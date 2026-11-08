@@ -10,8 +10,8 @@ android {
         manifestPlaceholders["appLabel"] = "Botysław Skaner"
         minSdk = 26
         targetSdk = 36
-        versionCode = 46
-        versionName = "1.4.9"
+        versionCode = 47
+        versionName = "1.5.0"
         buildConfigField("boolean", "PLAY_DISTRIBUTION", "false")
         testInstrumentationRunner = "eu.komars.forgescanner.ScannerSmokeInstrumentation"
     }
@@ -53,6 +53,7 @@ android {
     testOptions { unitTests.isReturnDefaultValues = true }
 }
 dependencies {
+    implementation(project(":shared"))
     implementation("com.google.mlkit:text-recognition:16.0.1")
     implementation("com.google.android.play:app-update:2.1.0")
     testImplementation("junit:junit:4.13.2")

@@ -30,7 +30,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.sirmaxen.BotyslawSkaner
     dependencies:
       - target: BroadcastExtension
-      # TODO (Etap 1): - framework: ../shared/build/XCFrameworks/release/BotyslawShared.xcframework
+      - framework: ../shared/build/XCFrameworks/release/BotyslawShared.xcframework # ./gradlew :shared:assembleBotyslawSharedXCFramework
   BroadcastExtension:
     type: app-extension
     platform: iOS
@@ -52,4 +52,4 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.sirmaxen.BotyslawSkaner.broadcast
     dependencies:
       - sdk: ReplayKit.framework
-      # TODO (Etap 1): - framework: ../shared/build/XCFrameworks/release/BotyslawShared.xcframework
+      - framework: ../shared/build/XCFrameworks/release/BotyslawShared.xcframework # ./gradlew :shared:assembleBotyslawSharedXCFramework

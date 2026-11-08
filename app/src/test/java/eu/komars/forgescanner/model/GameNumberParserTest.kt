@@ -2,7 +2,6 @@ package eu.komars.forgescanner.model
 
 import org.junit.Assert.*
 import org.junit.Test
-import java.math.BigDecimal
 
 class GameNumberParserTest {
     @Test fun readsAbbreviationsAndGrouping() {
@@ -16,7 +15,7 @@ class GameNumberParserTest {
     }
 
     @Test fun doesNotInventImplicitThousandsFromOcr() {
-        assertEquals(0, BigDecimal("9.88").compareTo(GameNumberParser.parse("9.88")!!.value))
+        assertEquals("9.88", GameNumberParser.parse("9.88")!!.value.toPlainString())
         assertNull(GameNumberParser.parse("9.88")!!.wholeValueOrNull())
         assertEquals(188L, GameNumberParser.parse("188")!!.wholeValueOrNull())
         assertEquals(0L, GameNumberParser.parse("0")!!.wholeValueOrNull())
