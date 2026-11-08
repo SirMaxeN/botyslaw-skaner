@@ -113,6 +113,28 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
 
     private var compactIcons=false
     private fun reportIndicator() {(context.applicationContext as ScannerApplication).setScannerBusy("resources",proposing || ((running||validating||returningHome) && !selecting))}
+    /** Position chosen by dragging the idle panel; reused while no gesture area must be avoided. */
+    private var movedTo: android.graphics.Point? = null
+    private val dragPanel = View.OnTouchListener { _, event ->
+        val panel = root ?: return@OnTouchListener false
+        val lp = panel.layoutParams as? WindowManager.LayoutParams ?: return@OnTouchListener false
+        when (event.actionMasked) {
+            android.view.MotionEvent.ACTION_DOWN -> { dragStart = floatArrayOf(event.rawX, event.rawY, lp.x.toFloat(), lp.y.toFloat()); true }
+            android.view.MotionEvent.ACTION_MOVE -> {
+                val start = dragStart ?: return@OnTouchListener false
+                val screen = physicalBounds()
+                lp.x = (start[2] + event.rawX - start[0]).toInt().coerceIn(0, (screen.width() - panel.width).coerceAtLeast(0))
+                lp.y = (start[3] + event.rawY - start[1]).toInt().coerceIn(0, (screen.height() - panel.height).coerceAtLeast(0))
+                runCatching { manager.updateViewLayout(panel, lp) }
+                panelBounds = Rect(lp.x, lp.y, lp.x + panel.width, lp.y + panel.height)
+                movedTo = android.graphics.Point(lp.x, lp.y); true
+            }
+            android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> { dragStart = null; true }
+            else -> false
+        }
+    }
+    private var dragStart: FloatArray? = null
+
     fun show() {
         if (CaptureConnection.state != CaptureState.READY || selecting) return
         if (!running && !validationUsesGestures()) { touchShield.hide(); GestureConnection.beforeGesture = null; GestureConnection.afterGesture = null; GestureConnection.inputSettleMillis = null }
@@ -133,8 +155,11 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
             setPadding(dp(4), dp(5), dp(4), dp(7))
         })
         val setup = setupIndex?.let { AutoScanStep.entries.getOrNull(it) }
-        label = text(if (returningHome) "Powrót do ekranu młotków" else if (running) "▶ ${activeStep?.title ?: "Skan"}" else if (setup != null && validating) "Przejście · ${setup.title}" else if (setup != null) "Konfiguracja · ${ResourceSetupScreens.forStep(setup).title}" else "⌖ Automatyczny skan", 14f, true)
+        val movable = !running && !validating && !returningHome
+        label = text((if (movable) "⠿ " else "") + if (returningHome) "Powrót do ekranu młotków" else if (running) "▶ ${activeStep?.title ?: "Skan"}" else if (setup != null && validating) "Przejście · ${setup.title}" else if (setup != null) "Konfiguracja · ${ResourceSetupScreens.forStep(setup).title}" else "⌖ Automatyczny skan", 14f, true)
             .also { if (running) { it.minLines = 2; it.maxLines = 2 }; box.addView(it) }
+        // Idle panel can be dragged by its header (like the war panel); a running scan keeps it fixed for the touch shield.
+        if (movable) label?.setOnTouchListener(dragPanel)
         liveLabel = text(status, 11f).also {
             it.maxLines = if (running || returningHome) 3 else 4
             if (running || returningHome) it.minLines = 3
@@ -179,7 +204,9 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
         val params = WindowManager.LayoutParams(panelWidth, -2, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN, PixelFormat.TRANSLUCENT).apply {
             if (Build.VERSION.SDK_INT >= 30) { setFitInsetsTypes(0); layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS }
-            gravity = Gravity.TOP or Gravity.START; x = dp(8); y = desiredY
+            gravity = Gravity.TOP or Gravity.START
+            val moved = movedTo?.takeIf { forbidden == null }
+            x = moved?.x ?: dp(8); y = moved?.y ?: desiredY
         }
         panelBounds = Rect(params.x, params.y, params.x + panelWidth, params.y + panelHeight)
         root = box; runtimePanel = running

@@ -1,11 +1,18 @@
 # Change log
 
-## 1.4.6 (43) — Google Play hotfix / AUTO Test 86
+## 1.4.8 (45) — Google Play
+
+- "Przeskanuj listę od góry" after a roster failure now clears the stale saved member list (profiles stay) before reading it again, instead of re-hitting the same identity mismatch.
+- The stale-roster message says it directly: "Zapis listy klanu jest nieaktualny — czytam ją od nowa." (no longer suggests a problem with the current view).
+- The resource-scan panel over the game can be dragged by its "⠿" header while idle; a running scan keeps it fixed for the touch shield.
+
+## 1.4.7 (44) — Google Play / AUTO Test 87 (1.4.6 was built but never uploaded)
 
 - A war-list or ranking run left for more than 2 hours (e.g. overnight) is not resumed: members' powers changed, so the saved roster did not match the screen and the scan stopped with "Nie udało się potwierdzić tożsamości na bieżącym widoku" (2026-11-08, 1.4.5). Saved profiles are kept; the member list is read anew.
 - Top of the clan member list is recognised with 6% tolerance (changing "X godz. temu", avatars, highlight) instead of 2%, so the scan no longer rewinds up to eight times when it is already at the top. The end-of-list check stays strict.
 - Clan membership changes (someone left, joined or was swapped): on resume a changed member count re-reads that side's list, and a list that no longer matches the screen is rebuilt once from the top instead of stopping. Saved profiles of remaining members are kept; Discord ranking and list always reflect the latest read.
 - Management list update asks "Zaktualizuj i pinguj / Zaktualizuj / Nie aktualizuj": the silent option replaces the list without the @everyone notice (bot update required).
+- When the Sunday list already exists, management chooses from four options: update with @everyone, update without ping, "Tylko podgląd" (refresh the preview with the real enemy tech; the official list stays and can later be promoted on Discord), or keep it.
 - Hints point to the new bot commands: official list `/report war-list` (Sunday only), previews `/report war-list-preview`, game chat copy `/copy war-list`.
 
 ## 1.4.5 (42) — Google Play / AUTO Test 85

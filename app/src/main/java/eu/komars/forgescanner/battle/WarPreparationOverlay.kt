@@ -1006,10 +1006,10 @@ class WarPreparationOverlay(private val context:Context) {
     else if(fullMode&&rosterRebuilt.add(enemy)) {
      // The saved list no longer matches the screen (someone left, joined or was swapped): read it anew once.
      list.clear();fullStore.log("roster-reset",JSONObject().put("enemy",enemy).put("reason","identity"))
-     say("Skład klanu się zmienił — czytam listę od nowa. Zapisane profile zostają.")
+     say("Zapis listy klanu jest nieaktualny — czytam ją od nowa. Zapisane profile zostają.")
      rosterTop=RosterEndGate(1,6);rosterEnd=RosterEndGate();scrolls=0;rewindRoster(enemy,r)
     }
-    else if(fullMode) recoverFullCoverage(enemy,r,"Nie udało się potwierdzić tożsamości na bieżącym widoku.")
+    else if(fullMode) recoverFullCoverage(enemy,r,"Zapis listy klanu nadal nie zgadza się z ekranem. „Przeskanuj listę od góry” wyczyści go i przeczyta listę od nowa.")
     else failRosterEnd(enemy,"Nie udało się połączyć tego widoku z wcześniejszym. Zachowano ${list.size} postaci; nie dopisano powtórek. Ponów bieżący widok lub listę od góry.")
     return@captureRoster
    }
@@ -1099,7 +1099,12 @@ class WarPreparationOverlay(private val context:Context) {
   fail(message)
   val list=if(enemy)enemies else ours
   if(list.unresolvedIndices.isNotEmpty())recovery?.addView(ScannerAppearance.overlayAction(context,"Uzupełnij braki (${list.unresolvedIndices.size})") {reviewMissingRoster(enemy)})
-  recovery?.addView(ScannerAppearance.overlayAction(context,"Przeskanuj listę od góry") {recoverAction {retryRoster(enemy,true)}})
+  // A rescan from the top drops the stale saved list (profiles stay in the store) so it cannot block identity again.
+  recovery?.addView(ScannerAppearance.overlayAction(context,"Przeskanuj listę od góry") {recoverAction {
+   list.clear();fullProcessed.removeAll {it.startsWith("$enemy|")};fullRepairPass=false
+   if(fullMode)fullStore.log("roster-reset",JSONObject().put("enemy",enemy).put("reason","manual"))
+   retryRoster(enemy,true)
+  }})
  }
  private fun completePreparation() {
   if(preparingAll && !rosterConfigured) {clanRoster(false);return}
@@ -1374,11 +1379,17 @@ class WarPreparationOverlay(private val context:Context) {
   val g=generation
   status?.text="Lista na tę wojnę już istnieje na Discordzie."
   val dialog=android.app.AlertDialog.Builder(android.view.ContextThemeWrapper(context,eu.komars.forgescanner.R.style.ScannerDialogTheme))
-   .setTitle("Zaktualizować listę wojenną?")
-   .setMessage("Niedzielna lista na tę wojnę już istnieje. Jako zarząd możesz ją zastąpić tym odczytem — z pingiem @everyone na kanale przypomnień albo po cichu.")
-   .setPositiveButton("Zaktualizuj i pinguj") {_,_ -> if(active&&g==generation){uploadRequestId=null;upload(overwrite=true,notify=true)}}
-   .setNeutralButton("Zaktualizuj") {_,_ -> if(active&&g==generation){uploadRequestId=null;upload(overwrite=true,notify=false)}}
-   .setNegativeButton("Nie aktualizuj") {_,_ -> if(active&&g==generation){status?.text="Zostawiono obecną listę na Discordzie. Odczyt zachowany.";warning?.visibility=View.GONE;active=false}}
+   .setTitle("Lista na tę wojnę już istnieje — co zrobić?")
+   // Four choices: replace with or without @everyone, only refresh the preview (official list stays), or nothing.
+   .setItems(arrayOf("Zaktualizuj i pinguj @everyone","Zaktualizuj (bez pingu)","Tylko podgląd — oficjalna lista zostaje","Nie aktualizuj")) {_,which -> if(active&&g==generation){
+    uploadRequestId=null
+    when(which) {
+     0->upload(overwrite=true,notify=true)
+     1->upload(overwrite=true,notify=false)
+     2->upload(previewOnly=true)
+     else->{status?.text="Zostawiono obecną listę na Discordzie. Odczyt zachowany.";warning?.visibility=View.GONE;active=false}
+    }
+   }}
    .setOnCancelListener {if(active&&g==generation){status?.text="Zostawiono obecną listę na Discordzie.";active=false}}.create()
   dialog.window?.setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY);dialog.show()
  }
@@ -1389,7 +1400,7 @@ class WarPreparationOverlay(private val context:Context) {
  }
  /** Management (roles from /setup or administrators) may redo the Sunday list; the app asks before replacing it. */
  private var canOverrideList=false
- private fun upload(overwrite:Boolean=false,notify:Boolean=true) {
+ private fun upload(overwrite:Boolean=false,notify:Boolean=true,previewOnly:Boolean=false) {
   retryStep={upload()};repairKey=null;clearRecoveryActions()
   step(7,"Raport wojenny")
   if(!WarRosterProof.complete(ours.values,enemies.values,ourExpected,enemyExpected,ownClan,enemyClan)) {
@@ -1404,9 +1415,10 @@ class WarPreparationOverlay(private val context:Context) {
    }
    return
   }
-  val day=if(testMode)"TEST" else WarPreparationModel.day()?:run {fail("Okno wojenne zakończone.");return}
+  val asPreview=testMode||previewOnly
+  val day=if(asPreview)"TEST" else WarPreparationModel.day()?:run {fail("Okno wojenne zakończone.");return}
   if(fullMode&&fullResult==null){computeFullWar();return}
-  val body=JSONObject().put("test_mode",testMode).put("request_id",uploadRequestId?:UUID.randomUUID().toString().also {uploadRequestId=it}).put("own_clan",ownClan).put("enemy_clan",enemyClan).put("observed_at",Instant.now().toString()).put("war_day",day).put("overwrite",overwrite).put("notify",notify)
+  val body=JSONObject().put("test_mode",asPreview).put("real_tech",previewOnly).put("request_id",uploadRequestId?:UUID.randomUUID().toString().also {uploadRequestId=it}).put("own_clan",ownClan).put("enemy_clan",enemyClan).put("observed_at",Instant.now().toString()).put("war_day",day).put("overwrite",overwrite).put("notify",notify)
   fun list(values:Collection<WarMember>)=JSONArray().apply {values.forEach {put(JSONObject().put("name",it.name).put("power",it.power))}}
   body.put("ours",list(ours.values)).put("enemies",list(enemies.values)).put("our_count",ours.size).put("enemy_count",enemies.size)
    .put("own_bonus",JSONObject().put("damage",ownDamage).put("health",ownHealth)).put("enemy_bonus",JSONObject().put("damage",enemyDamage).put("health",enemyHealth))
@@ -1418,8 +1430,8 @@ class WarPreparationOverlay(private val context:Context) {
   logRosterState("upload");say("Wysyłam: $ownClan ${ours.resolvedCount}/$ourExpected → $enemyClan ${enemies.resolvedCount}/$enemyExpected. Nie zamykaj aplikacji.")
   val g=generation
   app.mobile.sendWar(body) {result ->
-   if(fullMode)fullStore.log("upload",JSONObject().put("kind",if(testMode)"war-preview" else "war").put("ok",result.isSuccess).put("error",result.exceptionOrNull()?.message?:JSONObject.NULL))
-   if(active && g==generation)result.fold({if(!testMode)data.edit().putString("uploadedDay",day).apply();status?.text=if(testMode)"Lista poglądowa zapisana (równe bonusy, poza niedzielą). Na Discordzie: /report war-list-preview, do czatu gry: /copy war-list. Odczyt można powtórzyć." else "Lista zapisana na Discordzie. Zablokowano ponowny zapis w tej wojnie.";warning?.visibility=View.GONE;active=false;if(fullMode&&testMode)addFullRecovery()},{error->
+   if(fullMode)fullStore.log("upload",JSONObject().put("kind",if(asPreview)"war-preview" else "war").put("ok",result.isSuccess).put("error",result.exceptionOrNull()?.message?:JSONObject.NULL))
+   if(active && g==generation)result.fold({if(!asPreview)data.edit().putString("uploadedDay",day).apply();status?.text=if(previewOnly)"Podgląd zaktualizowany (z techem rywala). Oficjalna lista bez zmian. Na Discordzie: /report war-list-preview — tam zarząd może ustawić go jako oficjalny." else if(testMode)"Lista poglądowa zapisana (równe bonusy, poza niedzielą). Na Discordzie: /report war-list-preview. Odczyt można powtórzyć." else "Lista zapisana na Discordzie. Zablokowano ponowny zapis w tej wojnie.";warning?.visibility=View.GONE;active=false;if(fullMode&&asPreview)addFullRecovery()},{error->
      if(!testMode&&!overwrite&&canOverrideList&&error.message.orEmpty().contains("Potwierdź aktualizację")){confirmListUpdate();return@fold}
      fail(error.message?:"Nie udało się wysłać listy.");if(fullMode)addFullRecovery()})}
  }

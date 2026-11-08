@@ -165,7 +165,7 @@ class BattleActivity: Activity() {
             .setMessage("Aktualizacja trwa około godziny (profile obu klanów).\n\n" +
                 (if(open) "Niedziela: lista tworzona jest tylko raz. Po zapisie nikt jej nie nadpisze aż do końca wojny." else "Poza niedzielą rywal dostaje takie same bonusy jak nasz klan. W niedzielę listę można utworzyć tylko raz.") +
                 (if(open) "\n\nOficjalna lista jest dostępna dla wszystkich na Discordzie: /start → Lista wojenna lub /report war-list"
-                 else "\n\nLista poglądowa będzie na Discordzie w /report war-list-preview, a do czatu gry skopiujesz ją przez /copy war-list") +
+                 else "\n\nLista poglądowa będzie na Discordzie w /report war-list-preview. Zarząd może ją tam ustawić jako oficjalną — wtedy /copy war-list skopiuje ją do czatu gry.") +
                 (last?.let {" (zaktualizowana $it)."}?:" (jeszcze jej nie ma)."))
             .setPositiveButton(if(open) "Utwórz listę" else "Aktualizuj") {_,_ -> prepare("war-list")}
             .setNegativeButton("Anuluj",null).show()
