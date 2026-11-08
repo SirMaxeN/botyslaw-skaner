@@ -143,6 +143,14 @@ class WarPreparationOverlay(private val context:Context) {
   (panel?.background as? android.graphics.drawable.GradientDrawable)?.setStroke(dp(2),color)
  }
  private fun clearRecoveryActions() {recovery?.removeAllViews()}
+ /** After a finished list or ranking: one tap back to the app (closes the overlay and capture). */
+ private fun addReturnToApp() {
+  restoreFullPanel()
+  recovery?.addView(ScannerAppearance.overlayAction(context,"↩ Wróć do aplikacji") {
+   context.startActivity(android.content.Intent(context,BattleActivity::class.java).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP))
+   stop()
+  },0)
+ }
  private fun fail(text:String) {
   restoreFullPanel()
   if(fullMode){fullStore.log("failure",JSONObject().put("stage",stage).put("target",fullTarget?:JSONObject.NULL).put("reason",text));if(stage==6&&fullStore.state()!=null)retryStep={resumeFullWork()}}
@@ -1242,7 +1250,21 @@ class WarPreparationOverlay(private val context:Context) {
        .put("skills_from_profile",quickSkills).put("reason",accepted.exceptionOrNull()?.message?:""))
       val reason=result.exceptionOrNull()?.message.orEmpty()
       if(CaptureConnection.state!=CaptureState.READY||!GestureConnection.isConnected||reason.contains("dotknię")||reason.contains("Gest został przerwany")){fail("Skan wstrzymany. Zapisane profile zachowane. $reason");return@scanBatch}
-      GestureConnection.requestArm(width,height) {armed ->if(active&&g==generation){session=armed.getOrNull();if(session==null)fail(armed.exceptionOrNull()?.message?:"Ponownie włącz dostępność.")else {saveFull("closing-profile");closeFullProfile(knownProfile=result.isSuccess) {fullProcessed+=fullId(enemy,member);fullTarget=null;saveFull("roster");later(180){visit(position+1)}}}}}
+      fun closeAndNext() {GestureConnection.requestArm(width,height) {armed ->if(active&&g==generation){session=armed.getOrNull();if(session==null)fail(armed.exceptionOrNull()?.message?:"Ponownie włącz dostępność.")else {saveFull("closing-profile");closeFullProfile(knownProfile=result.isSuccess) {fullProcessed+=fullId(enemy,member);fullTarget=null;saveFull("roster");later(180){visit(position+1)}}}}}}
+      // Automatic reading failed again in the last retry round: the profile is still open in the game, so ask the player to fill it in.
+      if(accepted.isFailure&&fullAutoRetry>=maxAutoRetry) {
+       fullStore.log("member-manual",JSONObject().put("name",member.name).put("reason",accepted.exceptionOrNull()?.message?:""))
+       say("Nie odczytano profilu ${member.name} po $maxAutoRetry próbach. Uzupełnij go ręcznie — profil jest otwarty w grze.")
+       fullEditor.reviewExternal(draft?:JSONObject().put("name",member.name),onCancelled={if(active&&g==generation)closeAndNext()}) {profile ->
+        if(!active||g!=generation)return@reviewExternal
+        profile.put("name",member.name)
+        runCatching {fullStore.save(enemy,clan,member,profile,profile,null)}.onFailure {fail(it.message?:"Nie zapisano profilu.");return@reviewExternal}
+        fullStore.log("member-manual-saved",JSONObject().put("name",member.name));fullResult=null;uploadRequestId=null
+        closeAndNext()
+       }
+       return@scanBatch
+      }
+      closeAndNext()
      }
     }
    }}
@@ -1374,7 +1396,7 @@ class WarPreparationOverlay(private val context:Context) {
   val g=generation
   app.mobile.sendClanRanking(body) {result ->
    fullStore.log("upload",JSONObject().put("kind","ranking").put("members",members.size).put("ok",result.isSuccess).put("error",result.exceptionOrNull()?.message?:JSONObject.NULL))
-   if(active&&g==generation)result.fold({status?.text="Ranking zapisany. Otwórz /report clan-ranking na Discordzie.";warning?.visibility=View.GONE;active=false},{fail(it.message?:"Nie udało się wysłać rankingu.")})}
+   if(active&&g==generation)result.fold({status?.text="Ranking zapisany. Otwórz /report clan-ranking na Discordzie.";warning?.visibility=View.GONE;active=false;addReturnToApp()},{fail(it.message?:"Nie udało się wysłać rankingu.")})}
  }
  private fun confirmListUpdate() {
   val g=generation
@@ -1410,6 +1432,13 @@ class WarPreparationOverlay(private val context:Context) {
     saveFull("repair-roster",true)
     retryStep={resumeFullWork()}
     fail("Listy wymagają uzupełnienia. Nasi ${ours.resolvedCount}/$ourExpected, rywale ${enemies.resolvedCount}/$enemyExpected. Kontynuuj, aby wrócić do brakującej listy.")
+    // Unreadable roster cards: ask the player right away instead of only offering "Kontynuuj".
+    val unresolvedSide=if(ours.unresolvedIndices.isNotEmpty())false else if(enemies.unresolvedIndices.isNotEmpty())true else null
+    if(unresolvedSide!=null) {
+     val count=(if(unresolvedSide)enemies else ours).unresolvedIndices.size
+     recovery?.addView(ScannerAppearance.overlayAction(context,"Uzupełnij ręcznie (${count})") {reviewMissingRoster(unresolvedSide)})
+     reviewMissingRoster(unresolvedSide)
+    }
    } else {
     retryStep={clanRoster(true)}
     fail("Brakuje dwóch kompletnych, różnych list klanów. Raport nie został wysłany. Kontynuuj, aby otworzyć klan rywala.")
@@ -1432,8 +1461,8 @@ class WarPreparationOverlay(private val context:Context) {
   val g=generation
   app.mobile.sendWar(body) {result ->
    if(fullMode)fullStore.log("upload",JSONObject().put("kind",if(asPreview)"war-preview" else "war").put("ok",result.isSuccess).put("error",result.exceptionOrNull()?.message?:JSONObject.NULL))
-   if(active && g==generation)result.fold({if(!asPreview)data.edit().putString("uploadedDay",day).apply();status?.text=if(previewOnly)"Podgląd zaktualizowany (z techem rywala). Oficjalna lista bez zmian. Na Discordzie: /report war-list-preview — tam zarząd może ustawić go jako oficjalny." else if(testMode)"Lista poglądowa zapisana (równe bonusy, poza niedzielą). Na Discordzie: /report war-list-preview. Odczyt można powtórzyć." else "Lista zapisana na Discordzie. Zablokowano ponowny zapis w tej wojnie.";warning?.visibility=View.GONE;active=false;if(fullMode&&asPreview)addFullRecovery()},{error->
-     if(!testMode&&!overwrite&&canOverrideList&&error.message.orEmpty().contains("Potwierdź aktualizację")){confirmListUpdate();return@fold}
+   if(active && g==generation)result.fold({if(!asPreview)data.edit().putString("uploadedDay",day).apply();status?.text=if(previewOnly)"Podgląd zaktualizowany (z techem rywala). Oficjalna lista bez zmian. Na Discordzie: /report war-list-preview — tam zarząd może ustawić go jako oficjalny." else if(testMode)"Lista poglądowa zapisana (równe bonusy, poza niedzielą). Na Discordzie: /report war-list-preview. Odczyt można powtórzyć." else "Lista zapisana na Discordzie. Zablokowano ponowny zapis w tej wojnie.";warning?.visibility=View.GONE;active=false;if(fullMode&&asPreview)addFullRecovery();addReturnToApp()},{error->
+     if(!testMode&&!previewOnly&&!overwrite&&canOverrideList&&error.message.orEmpty().let {it.contains("Potwierdź aktualizację")||it.contains("już istnieje")}){confirmListUpdate();return@fold}
      fail(error.message?:"Nie udało się wysłać listy.");if(fullMode)addFullRecovery()})}
  }
 }

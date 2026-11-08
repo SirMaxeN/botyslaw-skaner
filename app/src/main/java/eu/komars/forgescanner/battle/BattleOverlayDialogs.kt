@@ -24,7 +24,9 @@ class BattleOverlayDialogs(private val context:Context,private val onMinimized:(
     private var externalDraft:JSONObject?=null
     private var externalSaved:((JSONObject)->Unit)?=null
     init { if(resetSessionOnCreate)resetOpponentSession() }
-    fun reviewExternal(value:JSONObject,onSaved:(JSONObject)->Unit) {externalDraft=value;externalSaved=onSaved;review("external") {}}
+    private var externalCancelled:(()->Unit)?=null
+    /** [onCancelled] (optional) runs when the player leaves the editor with "Wróć do gry" without saving. */
+    fun reviewExternal(value:JSONObject,onCancelled:(()->Unit)?=null,onSaved:(JSONObject)->Unit) {externalDraft=value;externalSaved=onSaved;externalCancelled=onCancelled;review("external") {}}
     fun resetOpponentSession() { opponent=null;opponentDraft=null;prefs.edit().remove("opponent").remove("draft_opponent").remove("hasCompletedSimulation").apply() }
     fun clearOpponentDraft() { opponentDraft=null }
     fun hasOpponent()=opponent!=null
@@ -251,6 +253,9 @@ class BattleOverlayDialogs(private val context:Context,private val onMinimized:(
         val alert=AlertDialog.Builder(dialogContext).setTitle(if(compact) "Uzupełnij brakujący odczyt" else if(side=="self") "Moja postać" else "Przeciwnik")
             .setView(editorContent(scroll)).setNeutralButton("Zminimalizuj",null).setPositiveButton(if(side=="external")"Zapisz profil"else if(side=="self") "Zapisz" else "Użyj do walki",null).setNegativeButton("Wróć do gry",null).create()
         show(alert)
+        if(side=="external"&&externalCancelled!=null)alert.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener {
+            val callback=externalCancelled;externalCancelled=null;externalSaved=null;externalDraft=null;hide();callback?.invoke()
+        }
         val controls=listOf<android.view.View>(damage,health,fairyType,fairyLevelInput,types,pets,mastery)+listOfNotNull(mountChoice)+fields.values+skillInputs.flatMap {listOf(it.first,it.second)}
         val backgrounds=controls.associateWith {it.background}
         fun markIssues(scrollToFirst:Boolean):Boolean {
@@ -328,7 +333,7 @@ class BattleOverlayDialogs(private val context:Context,private val onMinimized:(
                 .put("headerRaw",o.optString("headerRaw")).put("scannedAt",o.optLong("scannedAt",System.currentTimeMillis()))
             val memory=SkillVisualMemory(context)
             learned.forEach { (type,scan) -> if(scan!=null) memory.remember(type,scan.optString("raw"),scan.optJSONObject("visual")) }
-            if(side=="external") {val callback=externalSaved;externalSaved=null;externalDraft=null;hide();callback?.invoke(result);return@setOnClickListener}
+            if(side=="external") {val callback=externalSaved;externalSaved=null;externalDraft=null;externalCancelled=null;hide();callback?.invoke(result);return@setOnClickListener}
             if(side=="self") prefs.edit().putString(side,result.toString()).remove("draft_$side").apply() else { opponent=result;opponentDraft=null;prefs.edit().putString("opponent",result.toString()).putBoolean("hasCompletedSimulation",false).apply() }
             hide();onSaved()
         }

@@ -2,7 +2,14 @@
 
 ## 1.5.0 (47) — Google Play
 
-No behaviour change for players; groundwork for the iOS version.
+Fixes from the 2026-11-08 Sunday scan (logs: 3 auto-retries for one rival, "Zapis został zablokowany" for management):
+- Management (and the server owner) uploading over an existing Sunday list now gets the four-option update dialog: the bot checks the role on every list upload, not only on a confirmed overwrite; the app also opens the dialog when the pre-scan status already confirmed management.
+- A profile that still cannot be read in the last automatic retry round opens the profile editor while the player's profile is open in the game ("Wróć do gry" skips it as before).
+- An unreadable clan-list card at the report step opens the manual entry dialog right away (plus an "Uzupełnij ręcznie" button) instead of only "Kontynuuj".
+- After a saved war list or clan ranking the panel offers "↩ Wróć do aplikacji".
+- Back (and "‹ Wróć") from Options opened in the main menu returns to the main menu instead of the resource screen.
+
+Groundwork for the iOS version (no behaviour change):
 - New Kotlin Multiplatform module `:shared` holds the platform-independent scan and battle logic (screen detection, game font, OCR consensus, scroll counting, scan steps, battle model and engine). The Android app uses it exactly as before.
 - Game number parser no longer uses BigDecimal; a parity test pins it to the previous implementation on 300k random inputs.
 - Verified: unit tests and lint three times from scratch (524 tests, 0 failures); the 1.4.9 and 1.5.0 bundles contain the same classes and method signatures apart from the intended changes.

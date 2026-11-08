@@ -73,13 +73,18 @@ class MainActivity : Activity() {
         window.navigationBarColor = BACKGROUND
         restoreDraft(savedInstanceState)
         if (intent.getBooleanExtra("home", false)) { requestedScreen = Screen.HOME; intent.removeExtra("home") }
-        if(intent.getBooleanExtra("options",false)) { requestedScreen=Screen.OPTIONS;intent.removeExtra("options") }
+        if(intent.getBooleanExtra("options",false)) { requestedScreen=Screen.OPTIONS;optionsFromHome=true;intent.removeExtra("options") }
+        else if(savedInstanceState?.getBoolean("optionsFromHome")==true) optionsFromHome=true
         consumeReviewIntent()
         renderScreen()
     }
 
+    /** Options opened from the main menu (HomeActivity): Back returns there, not to the resource screen. */
+    private var optionsFromHome = false
+
     override fun onDestroy() {
-        if (isFinishing && !isChangingConfigurations) scanner.closeScanner()
+        // An Options-only instance (opened from the main menu) must not stop a scan running elsewhere.
+        if (isFinishing && !isChangingConfigurations && !optionsFromHome) scanner.closeScanner()
         super.onDestroy()
     }
     override fun onStart() {
@@ -101,7 +106,8 @@ class MainActivity : Activity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        if (intent.getBooleanExtra("home", false)) { requestedScreen = Screen.HOME; intent.removeExtra("home") }
+        if (intent.getBooleanExtra("home", false)) { requestedScreen = Screen.HOME; optionsFromHome = false; intent.removeExtra("home") }
+        if (intent.getBooleanExtra("options", false)) { requestedScreen = Screen.OPTIONS; optionsFromHome = true; intent.removeExtra("options") }
         consumeReviewIntent()
         renderScreen()
     }
@@ -113,6 +119,7 @@ class MainActivity : Activity() {
         outState.putString("screen", requestedScreen.name)
         outState.putBoolean("permissionFlowPending", permissionFlowPending)
         outState.putBoolean("openGameWhenReady", openGameWhenReady)
+        outState.putBoolean("optionsFromHome", optionsFromHome)
         drafts.forEach { (field, value) -> outState.putString("draft_${field.name}", value) }
         super.onSaveInstanceState(outState)
     }
@@ -121,7 +128,8 @@ class MainActivity : Activity() {
     override fun onBackPressed() {
         when (currentScreen) {
             Screen.HELP -> showOptions()
-            Screen.OPTIONS, Screen.RESULTS -> showHome()
+            Screen.OPTIONS -> if (optionsFromHome) finish() else showHome()
+            Screen.RESULTS -> showHome()
             else -> super.onBackPressed()
         }
     }
@@ -288,7 +296,7 @@ class MainActivity : Activity() {
     }
 
     private fun buildOptionsScreen(content: LinearLayout) {
-        content.addView(action("‹ Wróć", ID_BACK, quiet = true) { showHome() })
+        content.addView(action("‹ Wróć", ID_BACK, quiet = true) { if (optionsFromHome) finish() else showHome() })
         content.addView(text("Opcje", 27, FOREGROUND, bold = true).withTop(18))
         content.addView(text("Wersja aplikacji: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})", 13, MUTED).withTop(4))
         content.addView(action("Pomoc — jak używać skanera", ID_HELP) {
@@ -534,6 +542,7 @@ class MainActivity : Activity() {
     }
 
     private fun showHome() {
+        optionsFromHome = false // the resource screen is shown here now: behave like a normal resource instance
         rememberDraft()
         requestedScreen = Screen.HOME
         renderScreen()
