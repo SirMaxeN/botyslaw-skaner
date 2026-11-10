@@ -1,21 +1,23 @@
 import Vision
-import CoreVideo
 
-/// Apple Vision replacement for ML Kit text recognition used on Android
-/// (vision/OcrAnalyzer.kt, battle/BattleFieldDetector.kt, battle/CapturedTextReader.kt).
 enum VisionOcr {
-    struct Line { let text: String; let box: CGRect /* normalised, origin bottom-left */ }
-
-    static func recognize(_ pixels: CVPixelBuffer, region: CGRect? = nil) -> [Line] {
-        let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.recognitionLanguages = ["pl-PL", "en-US"]
-        request.usesLanguageCorrection = false
-        if let region { request.regionOfInterest = region }
-        try? VNImageRequestHandler(cvPixelBuffer: pixels).perform([request])
-        return (request.results ?? []).compactMap { obs in
-            obs.topCandidates(1).first.map { Line(text: $0.string, box: obs.boundingBox) }
+    static func recognize(_ image: CGImage, regions: [String: CGRect]) throws -> [String: String] {
+        let requests = regions.map { key, region -> (String, VNRecognizeTextRequest) in
+            let request = VNRecognizeTextRequest()
+            request.recognitionLevel = .accurate
+            request.usesLanguageCorrection = false
+            let available = (try? request.supportedRecognitionLanguages()) ?? []
+            let preferred = ["pl-PL", "en-US"].filter { available.contains($0) }
+            if !preferred.isEmpty { request.recognitionLanguages = preferred }
+            request.regionOfInterest = region
+            return (key, request)
         }
-        // TODO (Etap 4): map to the shared OcrLine/OcrAnalysis model (top-left pixel coordinates).
+        guard !requests.isEmpty else { return [:] }
+        try VNImageRequestHandler(cgImage: image).perform(requests.map { $0.1 })
+        return Dictionary(uniqueKeysWithValues: requests.compactMap { key, request in
+            let lines = request.results?.sorted { $0.boundingBox.midY > $1.boundingBox.midY }
+                .compactMap { $0.topCandidates(1).first?.string } ?? []
+            return lines.isEmpty ? nil : (key, lines.joined(separator: "\n"))
+        })
     }
 }

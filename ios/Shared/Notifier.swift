@@ -1,23 +1,19 @@
 import UserNotifications
+import os
 
-/// Tells the player what to do next while the game is in front: a banner with sound,
-/// only on step changes or problems, never per frame.
+/// Called on the analysis queue when the current scan instruction changes.
 final class Notifier {
     static let shared = Notifier()
-    private var lastText: String?
-    private var lastAt = Date.distantPast
-    private let minGap: TimeInterval = 2
+    private let logger = Logger(subsystem: "com.sirmaxen.BotyslawSkaner", category: "notifications")
 
-    func prompt(_ text: String, sound: Bool = true) {
-        guard text != lastText || Date().timeIntervalSince(lastAt) > 15,
-              Date().timeIntervalSince(lastAt) >= minGap else { return }
-        lastText = text; lastAt = Date()
+    func prompt(_ text: String) {
         let content = UNMutableNotificationContent()
         content.title = "Botysław"
         content.body = text
-        if sound { content.sound = .default }
-        // TODO: verify on device that the broadcast extension may post local notifications;
-        //       fallback = write to App Group and let the app post them.
-        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "botyslaw.prompt", content: content, trigger: nil))
+        content.sound = .default
+        let request = UNNotificationRequest(identifier: "botyslaw.prompt", content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(request) { [logger] error in
+            if error != nil { logger.error("Nie udało się pokazać powiadomienia. Instrukcja pozostaje dostępna w aplikacji.") }
+        }
     }
 }

@@ -11,11 +11,29 @@ import kotlin.math.roundToInt
 class CloseButtonPixelDetector {
     private data class Component(val bounds: PixelRegion, val area: Int)
 
-    fun detect(width: Int, height: Int, argb: IntArray, expected: PixelRegion? = null): PixelRegion? {
+    fun detect(width: Int, height: Int, argb: IntArray, expected: PixelRegion? = null): PixelRegion? =
+        candidates(width, height, argb, expected).singleOrNull()
+
+    fun detectGameplay(width: Int, height: Int, argb: IntArray): PixelRegion? =
+        gameplayCandidates(width, height, argb).singleOrNull()
+
+    fun hasGameplayClose(width: Int, height: Int, argb: IntArray): Boolean =
+        gameplayCandidates(width, height, argb).isNotEmpty()
+
+    private fun gameplayCandidates(width: Int, height: Int, argb: IntArray): List<PixelRegion> =
+        candidates(width, height, argb, null).filterNot { region ->
+            val x = (region.left + region.right) / 2.0
+            val y = (region.top + region.bottom) / 2.0
+            // The gem icon in the top currency bar and the unread chat counter can mimic a white X.
+            (x > width * .65 && y < height * .14) ||
+                (x < width * .20 && y in height * .80..height * .93)
+        }
+
+    private fun candidates(width: Int, height: Int, argb: IntArray, expected: PixelRegion?): List<PixelRegion> {
         if (width < 16 || height < 16 || width.toLong() * height > 1_600_000L ||
-            argb.size.toLong() != width.toLong() * height) return null
+            argb.size.toLong() != width.toLong() * height) return emptyList()
         if (expected != null && (expected.width <= 0 || expected.height <= 0 ||
-                expected.left < 0 || expected.top < 0 || expected.right > width || expected.bottom > height)) return null
+                expected.left < 0 || expected.top < 0 || expected.right > width || expected.bottom > height)) return emptyList()
         val search = expected?.let {
             val padding = max(it.width, it.height)
             PixelRegion(max(0, it.left - padding), max(0, it.top - padding),
@@ -44,8 +62,7 @@ class CloseButtonPixelDetector {
             if (roundRedShape(component, width, height, argb) && whiteX(component.bounds, width, argb) &&
                 compatible(component.bounds, expected)) candidates += component.bounds
         }
-        // A choice between two plausible X buttons must be made by the user, not a heuristic.
-        return candidates.singleOrNull()
+        return candidates
     }
 
     private fun red(color: Int): Boolean {

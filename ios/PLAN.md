@@ -1,5 +1,9 @@
 # Botysław Skaner na iOS — plan
 
+## Stan wersji 0.1.0 (3)
+
+Kod obejmuje odczyt liczników, zliczanie przewijanych list, weryfikację i wysyłkę zasobów do Discorda oraz dwa odczyty profilu do lokalnej walki 1 na 1. Szczegóły wyposażenia i nieodczytane wartości gracz zatwierdza lub wpisuje. Integracja natywna i geometria gry czekają na kompilację w Xcode oraz test na iPadzie. Odtwarzanie nagrań w symulatorze pozostaje narzędziem planowanym. Bieżący sposób lokalnej instalacji opisuje [README](README.md).
+
 ## Kontekst
 Na Androidzie aplikacja ma panel nad grą i automatyczne klikanie. iOS nie pozwala na żadne z nich. Da się za to nagrywać ekran przez ReplayKit (Broadcast Upload Extension) i analizować klatki na żywo.
 

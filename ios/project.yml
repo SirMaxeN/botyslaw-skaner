@@ -7,8 +7,9 @@ options:
 settings:
   base:
     MARKETING_VERSION: "0.1.0"
-    CURRENT_PROJECT_VERSION: "1"
-    SWIFT_VERSION: "5.9"
+    CURRENT_PROJECT_VERSION: "3"
+    TARGETED_DEVICE_FAMILY: "1,2"
+    SWIFT_VERSION: "5.0"
     DEVELOPMENT_TEAM: "" # set in Xcode (Signing & Capabilities) after creating the Apple Developer account
 targets:
   BotyslawSkaner:
@@ -21,6 +22,7 @@ targets:
         CFBundleDisplayName: Botysław Skaner
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        "UISupportedInterfaceOrientations~ipad": [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
     entitlements:
       path: BotyslawSkaner/BotyslawSkaner.entitlements
       properties:
@@ -30,11 +32,15 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.sirmaxen.BotyslawSkaner
     dependencies:
       - target: BroadcastExtension
-      - framework: ../shared/build/XCFrameworks/release/BotyslawShared.xcframework # ./gradlew :shared:assembleBotyslawSharedXCFramework
+      - framework: ../shared/build/XCFrameworks/release/BotyslawShared.xcframework
+        embed: false
   BroadcastExtension:
     type: app-extension
     platform: iOS
-    sources: [BroadcastExtension, Shared]
+    sources:
+      - BroadcastExtension
+      - path: Shared
+        excludes: [SyncClient.swift]
     info:
       path: BroadcastExtension/Info.plist
       properties:
@@ -52,4 +58,5 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.sirmaxen.BotyslawSkaner.broadcast
     dependencies:
       - sdk: ReplayKit.framework
-      - framework: ../shared/build/XCFrameworks/release/BotyslawShared.xcframework # ./gradlew :shared:assembleBotyslawSharedXCFramework
+      - framework: ../shared/build/XCFrameworks/release/BotyslawShared.xcframework
+        embed: false

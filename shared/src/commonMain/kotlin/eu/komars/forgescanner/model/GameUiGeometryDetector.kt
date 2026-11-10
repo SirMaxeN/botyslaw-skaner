@@ -13,12 +13,12 @@ data class GameUiProposal(val region: PixelRegion, val confidence: Float, val re
  * Coordinates are derived from connected UI components, not saved absolute tap positions.
  * Unknown or conflicting layouts deliberately return no proposal.
  */
-class GameUiGeometryDetector(private val width: Int, private val height: Int, private val pixels: IntArray) {
+class GameUiGeometryDetector(private val width: Int, private val height: Int, private val pixels: IntArray, allowTabletAspect: Boolean = false) {
     private data class Component(val box: PixelRegion, val area: Int) {
         val x get() = (box.left + box.right) / 2.0
         val y get() = (box.top + box.bottom) / 2.0
     }
-    private val valid = width >= 100 && height >= width * 1.5 && height <= width * 2.8 &&
+    private val valid = width >= 100 && height >= width * (if (allowTabletAspect) 1.25 else 1.5) && height <= width * 2.8 &&
         width.toLong() * height <= 600_000 && pixels.size.toLong() == width.toLong() * height
     private fun red(color: Int) = channel(color, 16) > 145 && channel(color, 8) < 155 && channel(color, 0) < 180
     private fun gray(color: Int): Boolean {
@@ -66,7 +66,10 @@ class GameUiGeometryDetector(private val width: Int, private val height: Int, pr
     private val potion by lazy { potionButton() }
     private val mountCard by lazy { equipmentMountCard() }
 
-    fun screenKind(): GameScreenKind {
+    private val kind by lazy { classifyScreen() }
+    fun screenKind(): GameScreenKind = kind
+
+    private fun classifyScreen(): GameScreenKind {
         if (!valid) return GameScreenKind.UNKNOWN
         // Screen identity comes from chrome. Current items, prices and balances are content.
         if (close != null && tabs == null && mountModal != null && (keys != null || summonButtons.isNotEmpty()))
@@ -77,15 +80,9 @@ class GameUiGeometryDetector(private val width: Int, private val height: Int, pr
             2 -> GameScreenKind.TECHNOLOGY
             else -> GameScreenKind.UNKNOWN
         }
-        val anyClose = CloseButtonPixelDetector().detect(width,height,pixels)?.takeUnless(::chatBadge)
-        return if (close == null && anyClose == null && potion != null && homeForgeButtons().isNotEmpty())
+        return if (close == null && potion != null && homeForgeButtons().isNotEmpty() &&
+            !CloseButtonPixelDetector().hasGameplayClose(width,height,pixels))
             GameScreenKind.HOME else GameScreenKind.UNKNOWN
-    }
-
-    /** The red unread-chat counter (bottom left, above the menu bar) can look like a small red X button. */
-    private fun chatBadge(region: PixelRegion): Boolean {
-        val x = (region.left + region.right) / 2.0; val y = (region.top + region.bottom) / 2.0
-        return x < width * .20 && y in height * .80..height * .93
     }
 
     fun detect(step: AutoScanStep): GameUiProposal? {
