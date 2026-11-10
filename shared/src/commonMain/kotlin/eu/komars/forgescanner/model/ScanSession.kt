@@ -9,9 +9,21 @@ enum class ResourceField(val label: String) {
     TICKETS("Bilety umiejętności"),
     SKILL_COST("Koszt przyzwania umiejętności x5"),
     PETS("Zwierzaki lub jajka, bez 3 bazowych"),
-    HAMMERS("Młotki");
+    HAMMERS("Młotki"),
+    // Extras (app 1.5.1): shown with the clan resources on Discord, never scored; optional everywhere.
+    COINS("Monety"),
+    GEMS("Diamenty"),
+    SHELLS("Skorupki"),
+    RED_VIALS("Czerwone fiolki"),
+    GREEN_VIALS("Zielone fiolki");
 
     val isCost: Boolean get() = this == MOUNT_COST || this == SKILL_COST
+    val optional: Boolean get() = this in EXTRAS
+
+    companion object {
+        val EXTRAS: List<ResourceField> get() = listOf(COINS, GEMS, SHELLS, RED_VIALS, GREEN_VIALS)
+        val required: List<ResourceField> get() = entries.filter { !it.optional }
+    }
 }
 
 enum class ScanStep(val title: String, val instruction: String, val fields: List<ResourceField>) {
@@ -40,7 +52,9 @@ enum class ScanStep(val title: String, val instruction: String, val fields: List
         "Pokaż licznik młotków. Sprawdź odczyt i przejdź do podsumowania.",
         listOf(ResourceField.HAMMERS)
     ),
-    REVIEW("Podsumowanie", "Sprawdź wszystkie wartości. Dopiero zatwierdzony raport skopiuj do schowka.", ResourceField.entries.toList());
+    REVIEW("Podsumowanie", "Sprawdź wszystkie wartości. Dopiero zatwierdzony raport skopiuj do schowka.", ResourceField.entries.toList()),
+    // After REVIEW so the manual step order (next() stops at REVIEW) is unchanged.
+    EXTRAS("Dodatkowe zasoby", "Monety i diamenty (ekran główny), skorupki (zwierzaki), czerwone i zielone fiolki (drzewo technologii). Nie wpływają na punkty.", ResourceField.EXTRAS);
 }
 
 data class ResourceObservation(
@@ -57,7 +71,7 @@ data class ScanSnapshot(
     val updatedAtMillis: Long
 ) {
     fun value(field: ResourceField): Long? = values[field]?.value
-    val missingFields: List<ResourceField> get() = ResourceField.entries.filter { !values.containsKey(it) }
+    val missingFields: List<ResourceField> get() = ResourceField.required.filter { !values.containsKey(it) }
     val unconfirmedFields: List<ResourceField> get() = ResourceField.entries.filter { values[it]?.confirmed == false }
     val readyToExport: Boolean get() = missingFields.isEmpty() && unconfirmedFields.isEmpty()
 }

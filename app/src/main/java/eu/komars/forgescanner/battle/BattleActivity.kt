@@ -26,6 +26,7 @@ import android.view.WindowInsets
 import android.os.Build
 
 class BattleActivity: Activity() {
+    companion object { const val EXTRA_RESEARCH = "research" }
     private val app get()=application as ScannerApplication
     private lateinit var body:LinearLayout
     private var pending:String?=null
@@ -34,7 +35,7 @@ class BattleActivity: Activity() {
         if(state==CaptureState.READY && requested) {
             requested=false
             val side=pending ?: "self"
-            if(side=="clan-ranking")app.warOverlay.offer(false,full=true,ranking=true)else if(side=="war-list")app.warOverlay.offer(true,test=WarPreparationModel.day()==null,full=true)else if(side=="war-prep")app.warOverlay.offer(false) else app.battleOverlay.show(side)
+            if(side=="clan-tech")app.warOverlay.offerClanTech() else if(side=="clan-ranking")app.warOverlay.offer(false,full=true,ranking=true)else if(side=="war-list"||side=="war-brawl")app.warOverlay.offer(true,test=WarPreparationModel.day()==null,full=true,brawl=side=="war-brawl")else if(side=="war-prep")app.warOverlay.offer(false) else app.battleOverlay.show(side)
             packageManager.getLaunchIntentForPackage("com.hariwn.legendofcivilizations")?.let { startActivity(it) }
                 ?: Toast.makeText(this,"Otwórz Forge Master ręcznie",Toast.LENGTH_LONG).show()
         } else if(state==CaptureState.ERROR) { requested=false; message(detail ?: "Nie udało się uruchomić odczytu") }
@@ -69,8 +70,9 @@ class BattleActivity: Activity() {
         } else scroll.fitsSystemWindows=true
         body=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL }
         scroll.addView(body);setContentView(scroll)
-        if(title=="Symulator walki" || title=="Walki") body.addView(ImageView(this).apply {
-            setImageResource(eu.komars.forgescanner.R.drawable.menu_battles);contentDescription="Botysław Skaner"
+        val art=when(title){"Symulator walki","Walki"->eu.komars.forgescanner.R.drawable.menu_battles;"Badania klanu"->eu.komars.forgescanner.R.drawable.menu_research;else->0}
+        if(art!=0) body.addView(ImageView(this).apply {
+            setImageResource(art);contentDescription="Botysław Skaner"
         },LinearLayout.LayoutParams(dp(76),dp(76)).apply { bottomMargin=dp(18) })
         label(title,28);label("Botysław Skaner · wersja testowa",13)
     }
@@ -98,6 +100,7 @@ class BattleActivity: Activity() {
     }
     private fun message(text:String) { if(!isFinishing) AlertDialog.Builder(this).setMessage(text).setPositiveButton("OK",null).show() }
     private fun home() {
+        if(intent?.getBooleanExtra(EXTRA_RESEARCH,false)==true){research();return}
         page("Walki")
         label("Przygotuj postać i sprawdź szanse w starciu",16)
         label("Odczyt ekranu gry",16)
@@ -110,6 +113,7 @@ class BattleActivity: Activity() {
         if(app.battleOverlay.isConfigured()) {
             var status:JSONObject?=null
             val listButton=button("Odczyt listy wojennej",enabled=app.mobile.paired) { confirmWarList(status) }
+            button("Symulacja bitki",enabled=app.mobile.paired) { prepare("war-brawl") }
             val rankingButton=button("Odczyt rankingu klanu",enabled=app.mobile.paired) { confirmRanking(status) }
             label(if(open) "Niedziela: odczytam też bonusy rywala. Listę na tę wojnę można utworzyć tylko raz." else "Poza niedzielą rywal dostaje takie same bonusy jak nasz klan. Odczyt można powtarzać; lista znika po resecie tygodnia.",13)
             val discord=TextView(this).apply {textSize=13f;setTextColor(Style.MUTED);setLineSpacing(dp(3).toFloat(),1f);setPadding(0,dp(6),0,dp(6))}
@@ -134,6 +138,17 @@ class BattleActivity: Activity() {
             }
         }
         if(!app.mobile.paired) label("Lista wojenna i ranking wymagają połączenia z Discordem w menu głównym.",13)
+        button("Menu główne") { app.closeScanner();startActivity(Intent(this,eu.komars.forgescanner.HomeActivity::class.java)) }
+        eu.komars.forgescanner.ui.SupportFooter.add(this,body)
+    }
+    /** Main menu → "Badania klanu": scans the clan research tree (same route as the war list) and sends it to Discord. */
+    private fun research() {
+        page("Badania klanu")
+        label("Odczyt drzewa badań klanu",16)
+        label("Konfiguracja zapisuje trasę i pola 18 badań: od początku sekcji „Wojna klanów” do dnia 6 oraz dwie ostatnie ikony w sekcji „Klanowe mikstury techniczne”.",13)
+        label("Zatwierdź zaproponowane ramki na kolejnych widokach. Skan odtwarza zapisane przesunięcia i kliknięcia. Potwierdzone premie trafiają do /tech show na Discordzie.",13)
+        button("Badania klanu: konfiguracja / skan",primary=true,enabled=app.mobile.paired) { prepare("clan-tech") }
+        if(!app.mobile.paired) label("Wymaga połączenia z Discordem w menu głównym.",13)
         button("Menu główne") { app.closeScanner();startActivity(Intent(this,eu.komars.forgescanner.HomeActivity::class.java)) }
         eu.komars.forgescanner.ui.SupportFooter.add(this,body)
     }
@@ -175,6 +190,15 @@ class BattleActivity: Activity() {
         if(!Settings.canDrawOverlays(this)) {
             message("Zezwól tej testowej aplikacji na wyświetlanie nad grą, następnie wróć i wybierz skan ponownie.")
             startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,Uri.parse("package:$packageName"))); return
+        }
+        if(!GestureConnection.isConnected && GestureConnection.enabledInSettings(this)) {
+            // Enabled but still binding after an update/app start: wait instead of asking to enable it again.
+            Toast.makeText(this,"Łączę sterowanie gestami…",Toast.LENGTH_SHORT).show()
+            GestureConnection.awaitConnection(this,connected={if(!isFinishing)prepare(side)},missing={
+                if(!isFinishing)AlertDialog.Builder(this).setTitle("Sterowanie gestami nie odpowiada")
+                    .setMessage("Usługa dostępności Botysława jest włączona, ale Android jej nie uruchomił. Wyłącz ją i włącz ponownie w ustawieniach dostępności, potem wróć tutaj.")
+                    .setPositiveButton("Ustawienia") { _,_ -> startActivity(GestureConnection.settingsIntent()) }.setNegativeButton("Anuluj",null).show()
+            });return
         }
         if(!GestureConnection.isConnected) {
             AlertDialog.Builder(this).setTitle("Sterowanie skanowaniem")

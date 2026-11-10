@@ -44,7 +44,7 @@ object GameNavigationGraph {
     fun resourceAction(name:String):Action? = when(name) {
         "OPEN_MOUNTS"->Action.OPEN_MOUNTS;"CLOSE_MOUNTS"->Action.CLOSE_MOUNTS
         "OPEN_RESEARCH"->Action.OPEN_RESEARCH;"OPEN_SKILLS"->Action.SKILLS
-        "OPEN_PETS"->Action.PETS;"CLOSE_RESEARCH"->Action.CLOSE_RESEARCH;else->null
+        "OPEN_PETS"->Action.PETS;"OPEN_TECH"->Action.TECHNOLOGY;"CLOSE_RESEARCH"->Action.CLOSE_RESEARCH;else->null
     }
     fun resourceScreen(screen:Screen):GameScreenKind = when(screen) {
         Screen.HOME->GameScreenKind.HOME;Screen.MOUNTS->GameScreenKind.MOUNTS
@@ -59,7 +59,7 @@ object GameNavigationGraph {
     fun warAction(key:String):Action? = when(key) {
         "memberAvatar"->Action.OPEN_MEMBER_PROFILE;"memberProfileClose"->Action.CLOSE_MEMBER_PROFILE;
         "science"->Action.OPEN_RESEARCH;"technology"->Action.TECHNOLOGY;"clanTechnologyCategory"->Action.CLAN_TECH
-        "damageNode","healthNode"->Action.OPEN_RESEARCH_DETAILS;"researchClose"->Action.CLOSE_RESEARCH_DETAILS
+        "damageNode","healthNode","clanTechNode"->Action.OPEN_RESEARCH_DETAILS;"researchClose"->Action.CLOSE_RESEARCH_DETAILS
         "clan"->Action.OPEN_CLAN;"warTab"->Action.WAR;"ourFlag","enemyFlag"->Action.OPEN_ROSTER
         "rosterClose"->Action.CLOSE_ROSTER;"rivalInfo"->Action.OPEN_RIVAL_BONUS;"infoOk"->Action.CLOSE_RIVAL_BONUS;"ourMvp","enemyMvp"->Action.OPEN_WAR_RANKING;"rankingClose"->Action.CLOSE_WAR_RANKING;else->null
     }

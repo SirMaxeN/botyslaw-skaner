@@ -125,6 +125,11 @@ class CounterRegionRecovery(private val ocr: OcrAnalyzer) {
         ScanTarget.MOUNT_COST -> AutoScanStep.MOUNT_COST
         ScanTarget.TICKETS -> AutoScanStep.SKILL_TICKETS
         ScanTarget.SKILL_COST -> AutoScanStep.SKILL_COST
+        ScanTarget.COINS -> AutoScanStep.COINS
+        ScanTarget.GEMS -> AutoScanStep.GEMS
+        ScanTarget.SHELLS -> AutoScanStep.SHELLS
+        ScanTarget.RED_VIALS -> AutoScanStep.RED_VIALS
+        ScanTarget.GREEN_VIALS -> AutoScanStep.GREEN_VIALS
         else -> null
     }
     private fun Rect.bounds() = CounterBounds(left, top, right, bottom)

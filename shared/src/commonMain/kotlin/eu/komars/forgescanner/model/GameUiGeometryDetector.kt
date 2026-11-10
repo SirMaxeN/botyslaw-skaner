@@ -100,8 +100,12 @@ class GameUiGeometryDetector(private val width: Int, private val height: Int, pr
             AutoScanStep.SKILL_COST -> skillCost.takeIf { kind==GameScreenKind.SKILLS }
             AutoScanStep.OPEN_SKILLS -> tabs?.takeIf { kind==GameScreenKind.SKILLS || kind==GameScreenKind.PETS || kind==GameScreenKind.TECHNOLOGY }?.let { tab(it,0) }
             AutoScanStep.OPEN_PETS -> tabs?.takeIf { kind==GameScreenKind.SKILLS || kind==GameScreenKind.PETS || kind==GameScreenKind.TECHNOLOGY }?.let { tab(it,1) }
+            AutoScanStep.OPEN_TECH -> tabs?.takeIf { kind==GameScreenKind.SKILLS || kind==GameScreenKind.PETS || kind==GameScreenKind.TECHNOLOGY }?.let { tab(it,2) }
             AutoScanStep.CLOSE_MOUNTS -> close.takeIf { kind==GameScreenKind.MOUNTS }
             AutoScanStep.CLOSE_RESEARCH -> close.takeIf { kind==GameScreenKind.SKILLS || kind==GameScreenKind.PETS || kind==GameScreenKind.TECHNOLOGY }
+            // Top-bar extras: icon + number (grey pill on the tabs screens, plain text on the home screen).
+            AutoScanStep.COINS, AutoScanStep.GEMS, AutoScanStep.SHELLS, AutoScanStep.RED_VIALS, AutoScanStep.GREEN_VIALS ->
+                TopCounters.forField(requireNotNull(step.target).field, kind, width, height, pixels)
             else -> null
         } ?: return null
         if (step.isInventory) return GameUiProposal(box, .84f,

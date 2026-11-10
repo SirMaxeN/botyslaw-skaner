@@ -332,6 +332,7 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
         val started = android.os.SystemClock.elapsedRealtime()
         val token = generation
         fun finish(result: Result<AutoReading?>) {
+            CaptureIndicator.avoid(null)
             if(token==generation && running) result.getOrNull()?.let {reading ->step.target?.let {target ->
                 (context.applicationContext as ScannerApplication).session.setValue(target.field,reading.value,confirmed=false,approximate=reading.approximate,sourceText=reading.source)
             }}
@@ -339,6 +340,7 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
                 "step=${step.name} ms=${android.os.SystemClock.elapsedRealtime() - started} success=${result.isSuccess}")
             complete(result)
         }
+        if (step.optional && skipOptional(step)) { finish(Result.success(null)); return }
         if (step.isNavigation) {
             navigate(step, token, ::finish); return
         }
@@ -348,6 +350,7 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
         val saved = calibrations.get(target, bounds.width(), bounds.height())
         if (saved == null) { finish(failure("Ustaw ponownie obszar: ${step.title}.")); return }
         protectedRegion = saved.region
+        CaptureIndicator.avoid(saved.region)
         show()
         capture { bitmap ->
             val calibration = calibrations.get(target, bitmap.width, bitmap.height)
@@ -373,6 +376,19 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
                     if (token == generation && running) { driver = null; touchShield.releaseScrollCorridor(); protectedRegion = null; finish(result.map { it }) }
                 }
             } else readCounter(step, target, calibration, bitmap, token, ::finish)
+        }
+    }
+
+    /** Extras not configured yet (older setups) are skipped silently; vials need the tech tab as well. */
+    private fun skipOptional(step: AutoScanStep): Boolean {
+        val bounds = physicalBounds(); val w = bounds.width(); val h = bounds.height()
+        fun counter(s: AutoScanStep) = s.target?.let { calibrations.get(it, w, h) } != null
+        val techReady = store.navigation(AutoScanStep.OPEN_TECH, w, h)?.after != null &&
+            (counter(AutoScanStep.RED_VIALS) || counter(AutoScanStep.GREEN_VIALS))
+        return when (step) {
+            AutoScanStep.OPEN_TECH -> !techReady
+            AutoScanStep.RED_VIALS, AutoScanStep.GREEN_VIALS -> !techReady || !counter(step)
+            else -> !counter(step)
         }
     }
 
@@ -470,6 +486,14 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
         val remembered=if(!app.demo && target.field.isCost) eu.komars.forgescanner.model.ConfirmedCostPolicy.choose(
             eu.komars.forgescanner.model.ConfirmedCostMemory(context).get(app.mobile.name.orEmpty(),target.field),choices) else null
         if(remembered!=null) {complete(Result.success(AutoReading(remembered.value,source="Bieżący odczyt zgodny z zatwierdzonym kosztem: ${remembered.sourceText}")));return}
+        // The same set of OCR readings was already resolved by the player: reuse that choice instead of asking again.
+        val choicePrefs=context.getSharedPreferences("counter_choices_v1",0)
+        val choiceKey="${target.name}:${choices.map { it.value }.sorted().joinToString(",")}"
+        val rememberedChoice=if(choices.size>1&&!app.demo)choicePrefs.getLong(choiceKey,-1L).takeIf { v -> choices.any { it.value==v } } else null
+        if(rememberedChoice!=null) {
+            val chosen=choices.first { it.value==rememberedChoice }
+            complete(Result.success(AutoReading(chosen.value,approximate=chosen.approximate,source="Zapamiętany wybór gracza: ${chosen.sourceText}")));return
+        }
         liveLabel?.text = if (choices.isEmpty()) "Ponów odczyt tego samego pola lub popraw zaznaczenie."
             else "Wybierz liczbę widoczną w grze. Zaznaczenie pozostaje bez zmian."
         var prompt: AlertDialog? = null
@@ -508,6 +532,13 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
                 if (activePrompt() && which in choices.indices) {
                     val chosen = choices[which]
                     dismissPrompt()
+                    // Learn right away: remember this choice for the same readings, teach the game font the digits of
+                    // this crop and share the learned digits with every phone (/mobile/learning), not only after review.
+                    if (!app.demo) {
+                        if (choices.size > 1) choicePrefs.edit().putLong(choiceKey, chosen.value).apply()
+                        runCatching { eu.komars.forgescanner.battle.GameDigitMemory.shared?.confirmCounter(target.field.name, chosen.value) }
+                        runCatching { app.knowledge.syncAsync(force = true) }
+                    }
                     complete(Result.success(AutoReading(chosen.value, approximate = chosen.approximate,
                         source = "Potwierdzono ręcznie: ${chosen.sourceText}")))
                 }
@@ -696,8 +727,9 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
                 navigateDuringSetup(step,sharedClose?:requireNotNull(savedNavigation),bitmap,token);return@capture
             }
             val known=GameNavigationGraph.resourceScreen(screenFlow.screen)
-            val visible=if(step==AutoScanStep.OPEN_SKILLS || step==AutoScanStep.OPEN_PETS) GameScreenKind.UNKNOWN else known
-            if(step==AutoScanStep.OPEN_SKILLS || step==AutoScanStep.OPEN_PETS)screenFlow.observe(GameNavigationGraph.Screen.RESEARCH)
+            val tabStep=step==AutoScanStep.OPEN_SKILLS || step==AutoScanStep.OPEN_PETS || step==AutoScanStep.OPEN_TECH
+            val visible=if(tabStep) GameScreenKind.UNKNOWN else known
+            if(tabStep)screenFlow.observe(GameNavigationGraph.Screen.RESEARCH)
             else if(visible!=GameScreenKind.UNKNOWN)screenFlow.observe(GameNavigationGraph.fromResource(visible))
             val screen=ResourceSetupScreens.forStep(step,visible)
             proposing=false
@@ -713,8 +745,9 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
             if(calibrationFlow.isApproved(item))saved else proposed?.container?:proposed?.region?:saved
         }
         val fields=group.associate {item->item.name to (item.title to suggestions[item])}.toMutableMap()
-        val tabs=step in listOf(AutoScanStep.OPEN_SKILLS,AutoScanStep.OPEN_PETS)
-        if(tabs)fields["TECHNOLOGY_TAB"]="Drzewo technologii" to (store.technologyTab(w,h)?:GameUiDetector().technologyTab(bitmap))
+        // The tech tab is now a real route step (OPEN_TECH); its rectangle is still shared with the war overlay.
+        val tabs=step in listOf(AutoScanStep.OPEN_SKILLS,AutoScanStep.OPEN_PETS,AutoScanStep.OPEN_TECH)
+        if(tabs&&fields[AutoScanStep.OPEN_TECH.name]?.second==null)fields[AutoScanStep.OPEN_TECH.name]=AutoScanStep.OPEN_TECH.title to (store.technologyTab(w,h)?:GameUiDetector().technologyTab(bitmap))
         selector=ScreenSelectionWindow(context,bitmap,false,{_,_,_->},{selector=null;selectedBitmap=null;selecting=false;recycle(bitmap);status="Konfiguracja ${screen.title}: anulowano zaznaczanie. Możesz poprawić pola ponownie.";show()},
             titleText="Konfiguracja · ${screen.title}",instructionText=screen.instruction+" Wybierz pole po prawej, popraw ramkę i zatwierdź cały ekran. Liczby odczytamy podczas skanu.",minimumSelectionSize=8,
             fields=fields,onFields={values ->
@@ -723,7 +756,7 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
                 try {
                     val forbidden=GameUiDetector().forbiddenActionAreas(bitmap)
                     val regions=group.associateWith {values.getValue(it.name)}
-                    if(tabs)store.saveTechnologyTab(values.getValue("TECHNOLOGY_TAB"),w,h)
+                    if(tabs)store.saveTechnologyTab(values.getValue(AutoScanStep.OPEN_TECH.name),w,h)
                     // Validate every field before writing any of this screen's configuration.
                     if(group.any {it.isNavigation && forbidden.any {area->area.contains(regions.getValue(it).centerX(),regions.getValue(it).centerY())}}) {
                         recycle(bitmap);fail("Przycisk nawigacji wskazuje miejsce wydawania zasobów. Popraw pola ekranu ${screen.title}.");return@ScreenSelectionWindow
@@ -750,10 +783,11 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
                     }
                     if(screenFlow.screen==GameNavigationGraph.Screen.UNKNOWN) {
                         val observed=when(step) {
-                            AutoScanStep.HAMMERS,AutoScanStep.OPEN_MOUNTS,AutoScanStep.OPEN_RESEARCH->GameNavigationGraph.Screen.HOME
+                            AutoScanStep.HAMMERS,AutoScanStep.COINS,AutoScanStep.GEMS,AutoScanStep.OPEN_MOUNTS,AutoScanStep.OPEN_RESEARCH->GameNavigationGraph.Screen.HOME
                             AutoScanStep.MOUNT_KEYS,AutoScanStep.MOUNT_COST,AutoScanStep.MOUNT_LIST,AutoScanStep.CLOSE_MOUNTS->GameNavigationGraph.Screen.MOUNTS
                             AutoScanStep.SKILL_TICKETS,AutoScanStep.SKILL_COST->GameNavigationGraph.Screen.SKILLS
-                            AutoScanStep.PET_LIST->GameNavigationGraph.Screen.PETS
+                            AutoScanStep.SHELLS,AutoScanStep.PET_LIST->GameNavigationGraph.Screen.PETS
+                            AutoScanStep.RED_VIALS,AutoScanStep.GREEN_VIALS->GameNavigationGraph.Screen.TECHNOLOGY
                             else->GameNavigationGraph.Screen.RESEARCH
                         }
                         screenFlow.observe(observed)
@@ -777,7 +811,7 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
         val before = ScreenCheckpoint.capture(bitmap, masks(step, width, height))
         val forbiddenCost = when (step) {
             AutoScanStep.CLOSE_MOUNTS -> ScanTarget.MOUNT_COST
-            AutoScanStep.OPEN_SKILLS, AutoScanStep.OPEN_PETS, AutoScanStep.CLOSE_RESEARCH -> ScanTarget.SKILL_COST
+            AutoScanStep.OPEN_SKILLS, AutoScanStep.OPEN_PETS, AutoScanStep.OPEN_TECH, AutoScanStep.CLOSE_RESEARCH -> ScanTarget.SKILL_COST
             else -> null
         }
         val cost = forbiddenCost?.let { calibrations.get(it, width, height)?.region }
@@ -853,7 +887,7 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
             } else excluded += region
         }
         // Main battle animation is irrelevant to navigation and the hammer counter.
-        if (step in listOf(AutoScanStep.HAMMERS, AutoScanStep.OPEN_MOUNTS, AutoScanStep.OPEN_RESEARCH, AutoScanStep.CLOSE_RESEARCH))
+        if (step in listOf(AutoScanStep.HAMMERS, AutoScanStep.COINS, AutoScanStep.GEMS, AutoScanStep.OPEN_MOUNTS, AutoScanStep.OPEN_RESEARCH, AutoScanStep.CLOSE_RESEARCH))
             excluded += Rect(0, height / 5, width, height * 54 / 100)
         return excluded
     }

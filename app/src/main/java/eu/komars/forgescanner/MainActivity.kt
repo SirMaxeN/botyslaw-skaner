@@ -254,7 +254,7 @@ class MainActivity : Activity() {
     }
 
     private fun addResourceField(parent: LinearLayout, field: ResourceField) {
-        parent.addView(text(field.label, 14, FOREGROUND, bold = true).withTop(20))
+        parent.addView(text(if (field.optional) "${field.label} (opcjonalnie, bez punktów)" else field.label, 14, FOREGROUND, bold = true).withTop(20))
         val input = EditText(this).apply {
             id = FIELD_ID_BASE + field.ordinal
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
@@ -262,7 +262,7 @@ class MainActivity : Activity() {
             textSize = 18f
             setTextColor(FOREGROUND)
             setHintTextColor(MUTED)
-            hint = if (field.isCost) "Wpisz koszt" else "np. 9880 lub 9,88k"
+            hint = if (field.isCost) "Wpisz koszt" else if (field.optional) "puste = pomiń, np. 2,12m" else "np. 9880 lub 9,88k"
             setPadding(dp(14), dp(11), dp(14), dp(11))
             background = rounded(INPUT_BACKGROUND, 10, BORDER)
             filters = arrayOf(InputFilter.LengthFilter(32))
@@ -382,6 +382,16 @@ class MainActivity : Activity() {
         if (scanner.demo) { toast("Wyłącz DEMO przed skanowaniem gry."); return }
         val preferences = getSharedPreferences("automation_consent_v1", MODE_PRIVATE)
         val gestures = eu.komars.forgescanner.automation.GestureConnection
+        if (preferences.getBoolean("disclosed", false) && !gestures.isConnected && gestures.enabledInSettings(this)) {
+            // Enabled but still binding (after an update or app start): wait briefly instead of asking again.
+            toast("Łączę sterowanie gestami…")
+            gestures.awaitConnection(this, connected = { if (!isFinishing) startAutomaticMode() }, missing = {
+                if (!isFinishing) AlertDialog.Builder(this).setTitle("Sterowanie gestami nie odpowiada")
+                    .setMessage("Usługa dostępności Botysława jest włączona, ale Android jej nie uruchomił. Wyłącz ją i włącz ponownie w ustawieniach dostępności, potem wróć tutaj.")
+                    .setPositiveButton("Ustawienia") { _, _ -> startActivity(gestures.settingsIntent()) }.setNegativeButton("Anuluj", null).show()
+            })
+            return
+        }
         if (!preferences.getBoolean("disclosed", false) || !gestures.isConnected) {
             AlertDialog.Builder(this).setTitle("Opcjonalne sterowanie gestami")
                 .setMessage("Automatyczny skan używa usługi dostępności do naciskania wskazanych przez Ciebie przycisków nawigacji i przewijania list w Forge Master. Rozpoznaje aktywną aplikację, aby zatrzymać gesty po wyjściu z gry. Nie pobiera treści okien przez dostępność; obraz gry analizuje lokalnie po osobnej zgodzie na odczyt ekranu. Nie wysyła obrazów ani nie wykonuje przyzywania, łączenia lub zakupów. Każdy skan uruchamiasz przyciskiem; STOP zatrzymuje sekwencję po bieżącym krótkim geście. Po akceptacji włącz usługę Botysław: automatyczny skan w ustawieniach, wróć tutaj i uruchom ten tryb ponownie. Manualny odczyt działa bez tej zgody.")
@@ -566,6 +576,8 @@ class MainActivity : Activity() {
         fields.forEach { (field, input) ->
             val raw = input.text.toString().trim()
             val value = GameNumberParser.parse(raw)?.wholeValueOrNull()
+            // Extras (coins, gems, shells, vials) may stay empty: they are optional and never scored.
+            if (raw.isEmpty() && field.optional) { input.error = null; return@forEach }
             val message = when {
                 raw.isEmpty() -> "Wpisz wartość. 0 tylko wtedy, gdy nic nie masz."
                 value == null -> "Wpisz całkowitą liczbę, np. 9880 lub 9,88k."
@@ -580,7 +592,7 @@ class MainActivity : Activity() {
         firstInvalid?.let {
             it.requestFocus()
             scroll.post { scroll.smoothScrollTo(0, (it.top - dp(40)).coerceAtLeast(0)) }
-            toast("Sprawdź wszystkie 7 pól.")
+            toast("Sprawdź wymagane pola (7) — dodatkowe zasoby mogą zostać puste.")
             return null
         }
         return result

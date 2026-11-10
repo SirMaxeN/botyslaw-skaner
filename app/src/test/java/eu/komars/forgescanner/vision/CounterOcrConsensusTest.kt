@@ -12,7 +12,7 @@ class CounterOcrConsensusTest {
 
     @Test fun allFiveNumericTargetsUseThreeIndependentFrames() {
         val targets = ScanTarget.entries.filterNot { it.isInventory }
-        assertEquals(5, targets.size)
+        assertEquals(10, targets.size) // 5 scored counters + coins, gems, shells, red and green vials
         for (target in targets) {
             val result = CounterOcrConsensus.combine(List(3) { frame(188) }, target)
             assertFalse(target.title, result.requiresConfirmation)

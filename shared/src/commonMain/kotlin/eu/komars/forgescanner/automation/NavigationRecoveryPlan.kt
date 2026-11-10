@@ -17,7 +17,7 @@ object NavigationRecoveryPlan {
             AutoScanStep.CLOSE_MOUNTS, AutoScanStep.CLOSE_RESEARCH -> home
             AutoScanStep.OPEN_MOUNTS -> home + AutoScanStep.OPEN_MOUNTS
             AutoScanStep.OPEN_RESEARCH -> home + AutoScanStep.OPEN_RESEARCH
-            AutoScanStep.OPEN_SKILLS, AutoScanStep.OPEN_PETS -> {
+            AutoScanStep.OPEN_SKILLS, AutoScanStep.OPEN_PETS, AutoScanStep.OPEN_TECH -> {
                 if (screen in setOf(GameScreenKind.SKILLS, GameScreenKind.PETS, GameScreenKind.TECHNOLOGY)) listOf(expected)
                 else home + listOf(AutoScanStep.OPEN_RESEARCH, expected)
             }

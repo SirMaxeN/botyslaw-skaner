@@ -7,14 +7,16 @@ import org.junit.Test
 class ResourceSetupScreensTest {
     @Test fun homeCollectsBothEntrancesAndHammersWithoutOpeningAnything() {
         val fields=ResourceSetupScreens.forStep(AutoScanStep.HAMMERS).fields
-        assertEquals(listOf(AutoScanStep.HAMMERS,AutoScanStep.OPEN_MOUNTS,AutoScanStep.OPEN_RESEARCH),fields)
+        assertEquals(listOf(AutoScanStep.HAMMERS,AutoScanStep.COINS,AutoScanStep.GEMS,AutoScanStep.OPEN_MOUNTS,AutoScanStep.OPEN_RESEARCH),fields)
         val flow=CalibrationFlow();flow.beginAll();flow.approve(fields)
         assertEquals(AutoScanStep.HAMMERS,flow.current)
         assertEquals(AutoScanStep.OPEN_MOUNTS,flow.advance())
     }
     @Test fun mountCloseBelongsWithCountersAndListButMustStillBeExecuted() {
         val flow=CalibrationFlow();flow.beginAll()
-        flow.advance();flow.advance()
+        flow.approve(ResourceSetupScreens.forStep(AutoScanStep.HAMMERS).fields)
+        assertEquals(AutoScanStep.OPEN_MOUNTS,flow.advance())
+        assertEquals(AutoScanStep.MOUNT_KEYS,flow.advance())
         val fields=ResourceSetupScreens.forStep(AutoScanStep.MOUNT_KEYS).fields
         assertEquals(listOf(AutoScanStep.MOUNT_KEYS,AutoScanStep.MOUNT_COST,AutoScanStep.MOUNT_LIST,AutoScanStep.CLOSE_MOUNTS),fields)
         flow.approve(fields)
@@ -23,10 +25,11 @@ class ResourceSetupScreensTest {
     }
     @Test fun firstResearchStepAlwaysConfiguresOnlyTabsRegardlessOfRememberedScreen() {
         for(visible in GameScreenKind.entries) {
-            assertEquals(listOf(AutoScanStep.OPEN_SKILLS,AutoScanStep.OPEN_PETS),ResourceSetupScreens.forStep(AutoScanStep.OPEN_SKILLS,visible).fields)
+            assertEquals(listOf(AutoScanStep.OPEN_SKILLS,AutoScanStep.OPEN_PETS,AutoScanStep.OPEN_TECH),ResourceSetupScreens.forStep(AutoScanStep.OPEN_SKILLS,visible).fields)
         }
         assertEquals(listOf(AutoScanStep.SKILL_TICKETS,AutoScanStep.SKILL_COST),ResourceSetupScreens.forStep(AutoScanStep.SKILL_TICKETS).fields)
-        assertEquals(listOf(AutoScanStep.PET_LIST),ResourceSetupScreens.forStep(AutoScanStep.PET_LIST).fields)
+        assertEquals(listOf(AutoScanStep.SHELLS,AutoScanStep.PET_LIST),ResourceSetupScreens.forStep(AutoScanStep.PET_LIST).fields)
+        assertEquals(listOf(AutoScanStep.RED_VIALS,AutoScanStep.GREEN_VIALS),ResourceSetupScreens.forStep(AutoScanStep.GREEN_VIALS).fields)
     }
     @Test fun approvedFieldsDoNotLeakIntoNewSetupOrRepair() {
         val flow=CalibrationFlow();flow.beginAll();flow.approve(AutoScanStep.entries)
@@ -58,13 +61,14 @@ class ResourceSetupScreensTest {
                         AutoScanStep.OPEN_RESEARCH->initialResearch
                         AutoScanStep.OPEN_SKILLS->GameScreenKind.SKILLS
                         AutoScanStep.OPEN_PETS->GameScreenKind.PETS
+                        AutoScanStep.OPEN_TECH->GameScreenKind.TECHNOLOGY
                         else->error("unexpected route")
                     }
                 }
                 flow.advance(step)
             }
             assertEquals(AutoScanStep.entries.filter {it.isNavigation},actions)
-            assertEquals(5,selections.size)
+            assertEquals(6,selections.size) // + the tech tree screen with the vial counters
             assertEquals(selections.distinct(),selections)
             assertEquals(GameScreenKind.HOME,visible)
         }

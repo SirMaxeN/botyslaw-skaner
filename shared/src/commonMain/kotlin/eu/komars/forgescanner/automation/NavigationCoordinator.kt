@@ -121,7 +121,7 @@ class NavigationCoordinator(
     private fun isSource(step: AutoScanStep, screen: GameScreenKind): Boolean = when (step) {
         AutoScanStep.OPEN_MOUNTS, AutoScanStep.OPEN_RESEARCH -> screen == GameScreenKind.HOME
         AutoScanStep.CLOSE_MOUNTS -> screen == GameScreenKind.MOUNTS
-        AutoScanStep.OPEN_SKILLS, AutoScanStep.OPEN_PETS, AutoScanStep.CLOSE_RESEARCH ->
+        AutoScanStep.OPEN_SKILLS, AutoScanStep.OPEN_PETS, AutoScanStep.OPEN_TECH, AutoScanStep.CLOSE_RESEARCH ->
             screen == GameScreenKind.SKILLS || screen == GameScreenKind.PETS || screen == GameScreenKind.TECHNOLOGY
         else -> false
     }

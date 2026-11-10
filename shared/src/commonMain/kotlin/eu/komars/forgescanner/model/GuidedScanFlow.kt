@@ -43,7 +43,14 @@ enum class ScanTarget(
         "Młotki",
         "Pokaż liczbę młotków.",
         ResourceField.HAMMERS, ScanStep.HAMMERS
-    );
+    ),
+    COINS("Monety", "Licznik monet na górnym pasku ekranu głównego (np. 2.12m).", ResourceField.COINS, ScanStep.EXTRAS),
+    GEMS("Diamenty", "Różowy licznik diamentów na górnym pasku.", ResourceField.GEMS, ScanStep.EXTRAS),
+    SHELLS("Skorupki", "Licznik skorupek w lewym górnym rogu ekranu zwierzaków.", ResourceField.SHELLS, ScanStep.EXTRAS),
+    RED_VIALS("Czerwone fiolki", "Licznik czerwonych fiolek na ekranie drzewa technologii.", ResourceField.RED_VIALS, ScanStep.EXTRAS),
+    GREEN_VIALS("Zielone fiolki", "Licznik zielonych fiolek na ekranie drzewa technologii.", ResourceField.GREEN_VIALS, ScanStep.EXTRAS);
+
+    val optional: Boolean get() = this.field.optional
 
     val owner: ScanTarget get() = when (this) { MOUNT_COST -> MOUNT_KEYS; SKILL_COST -> TICKETS; else -> this }
     val counters: List<ScanTarget> get() = when (owner) {
@@ -51,7 +58,7 @@ enum class ScanTarget(
         TICKETS -> listOf(TICKETS, SKILL_COST)
         else -> listOf(this)
     }
-    val position: Int get() = when (owner) { HAMMERS -> 1; MOUNT_KEYS, MOUNTS -> 2; TICKETS -> 3; else -> 4 }
+    val position: Int get() = when (owner) { HAMMERS, COINS, GEMS -> 1; MOUNT_KEYS, MOUNTS -> 2; TICKETS -> 3; else -> 4 }
     val displayTitle: String get() = when (this) {
         MOUNT_KEYS -> "Klucze i koszt wierzchowca"
         TICKETS -> "Bilety i koszt x5"

@@ -22,7 +22,7 @@ object WarScreenGeometry {
  fun observe(w:Int,h:Int,p:IntArray):Observation {
   if(w<100||h<w||p.size!=w*h)return Observation()
   val close=CloseButtonPixelDetector()
-  val footer=close.detect(w,h,p)
+  val footer=close.detectGameplay(w,h,p)
   fun around(cx:Int,cy:Int,r:Int)=PixelRegion((cx-r).coerceAtLeast(0),(cy-r).coerceAtLeast(0),(cx+r).coerceAtMost(w),(cy+r).coerceAtMost(h))
   val light=parts(w,h,p){red(it)>200&&green(it)>200&&blue(it)>200&&maxOf(red(it),green(it),blue(it))-minOf(red(it),green(it),blue(it))<30}
   val viewport=light.map {it.box}.filter {it.left>w*.025&&it.right<w*.975&&it.width>w*.65&&it.height>w*.85&&it.top>h*.10&&it.bottom<h*.93}.maxByOrNull {it.width*it.height}

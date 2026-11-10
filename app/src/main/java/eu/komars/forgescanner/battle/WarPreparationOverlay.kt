@@ -16,6 +16,7 @@ import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import org.json.*
 import java.time.Instant
 import java.util.UUID
+import eu.komars.forgescanner.model.ClanTechSections
 
 /** Guided first marking, then bounded automatic navigation. Never presses Attack or donation buttons. */
 class WarPreparationOverlay(private val context:Context) {
@@ -42,6 +43,7 @@ class WarPreparationOverlay(private val context:Context) {
  private var fullProfileAnchor:MemberProfileAnchor?=null
  private val fullCentered=mutableSetOf<String>()
  private var fullRepairPass=false
+ private var brawlMode=false
  private var rankingMode=false
  private var fullAutoRetry=0
  private var paused=false
@@ -81,6 +83,7 @@ class WarPreparationOverlay(private val context:Context) {
   }
  }
  private val maxAutoRetry=3
+ private val TECH_MAX_PAGES=25
  private var fullEnemySwept=false
  private var lastFullViewport:List<Pair<Int,Int>> = emptyList()
  private var stableFullViewport=0
@@ -135,7 +138,7 @@ class WarPreparationOverlay(private val context:Context) {
  private fun dp(v:Int)=(v*context.resources.displayMetrics.density).toInt()
  private fun say(text:String) {status?.text=text}
  private fun step(at:Int,title:String) {
-  if(fullMode)fullStore.log("step",JSONObject().put("stage",at).put("title",title))
+  if(fullMode||techMode)fullStore.log("step",JSONObject().put("stage",at).put("title",title))
   if(!paused)panel?.visibility=View.VISIBLE
   if(at!=stage)restoreFullPanel() else if(autoCompacted){autoCompacted=false;chrome?.setCompact(false)}
   stage=at;val color=eu.komars.forgescanner.ui.ScannerAppearance.stepColor(at)
@@ -147,13 +150,16 @@ class WarPreparationOverlay(private val context:Context) {
  private fun addReturnToApp() {
   restoreFullPanel()
   recovery?.addView(ScannerAppearance.overlayAction(context,"↩ Wróć do aplikacji") {
-   context.startActivity(android.content.Intent(context,BattleActivity::class.java).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP))
+   val destination=android.content.Intent(context,BattleActivity::class.java)
+    .putExtra(BattleActivity.EXTRA_RESEARCH,techMode)
+    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP)
    stop()
+   context.startActivity(destination)
   },0)
  }
  private fun fail(text:String) {
   restoreFullPanel()
-  if(fullMode){fullStore.log("failure",JSONObject().put("stage",stage).put("target",fullTarget?:JSONObject.NULL).put("reason",text));if(stage==6&&fullStore.state()!=null)retryStep={resumeFullWork()}}
+  if(fullMode||techMode){fullStore.log("failure",JSONObject().put("stage",stage).put("target",fullTarget?:JSONObject.NULL).put("reason",text));if(stage==6&&fullStore.state()!=null)retryStep={resumeFullWork()}}
   screenFlow.reset();transitionEpoch++
   setRosterControls(0);warning?.visibility=View.GONE;active=false;generation++;GestureConnection.cancel();shield.hide();selector?.close();selector=null;releaseSelectionFrame()
   GestureConnection.beforeGesture=null;GestureConnection.afterGesture=null;GestureConnection.inputSettleMillis=null
@@ -164,8 +170,8 @@ class WarPreparationOverlay(private val context:Context) {
    prefs.edit().remove("war_$key").putBoolean("war_verified_$key",false).apply()
    if(retry!=null)recoverAction(retry)
   }))}
-  if(stage in 1..3)recovery?.addView(ScannerAppearance.overlayAction(context,"Wskaż badania ręcznie",action={manualResearch()}))
-  if(stage in 2..3)recovery?.addView(ScannerAppearance.overlayAction(context,"Popraw opis i zamknięcie badania",action={
+  if(!techMode&&stage in 1..3)recovery?.addView(ScannerAppearance.overlayAction(context,"Wskaż badania ręcznie",action={manualResearch()}))
+  if(!techMode&&stage in 2..3)recovery?.addView(ScannerAppearance.overlayAction(context,"Popraw opis i zamknięcie badania",action={
    prefs.edit().remove("war_researchText").remove("war_researchClose").apply()
    recoverAction {prepareResearchWindow(pendingHealth)}
   }))
@@ -192,25 +198,31 @@ class WarPreparationOverlay(private val context:Context) {
   }
   }
  }
- fun configurationReady():Boolean {
-  val keys=listOf("technology","clanTechnologyCategory","damageNode","healthNode","researchText","researchClose","clan","warTab","ourFlag","enemyFlag","roster","rosterClose") + if(WarPreparationModel.day()!=null) listOf("rivalInfo","rivalText","infoOk") else emptyList()
+ private val researchFields=listOf("technology","clanTechnologyCategory","damageNode","healthNode","researchText","researchClose")
+ private fun configuredFields(keys:List<String>):Boolean {
   val geometries=keys.map {key ->runCatching {JSONObject(prefs.getString("war_$key",null)!!)}.getOrNull()?:return false}
   val w=geometries.first().optInt("width");val hh=geometries.first().optInt("height")
-  if(w<=0||hh<=0||geometries.any {o ->o.optInt("width")!=w||o.optInt("height")!=hh||o.optInt("l",-1)<0||o.optInt("t",-1)<0||o.optInt("r")>w||o.optInt("b")>hh||o.optInt("r")-o.optInt("l")<8||o.optInt("b")-o.optInt("t")<8})return false
-  val navigations=listOf("science","technology","clanTechnologyCategory","damageNode","healthNode","researchClose","clan","warTab","ourFlag","enemyFlag","rosterClose") + if(WarPreparationModel.day()!=null)listOf("rivalInfo","infoOk")else emptyList()
-  return navigation.hasNavigation(AutoScanStep.OPEN_RESEARCH) && navigations.all {prefs.getBoolean("war_verified_$it",false)}
+  return w>0&&hh>0&&geometries.all {o ->o.optInt("width")==w&&o.optInt("height")==hh&&o.optInt("l",-1)>=0&&o.optInt("t",-1)>=0&&o.optInt("r")<=w&&o.optInt("b")<=hh&&o.optInt("r")-o.optInt("l")>=8&&o.optInt("b")-o.optInt("t")>=8}
  }
- fun offer(roster:Boolean,configureAll:Boolean=false,test:Boolean=false,full:Boolean=false,ranking:Boolean=false) {
+ private fun researchConfigurationReady():Boolean = configuredFields(researchFields) &&
+  navigation.hasNavigation(AutoScanStep.OPEN_RESEARCH) && (listOf("science")+researchFields.filter {it!="researchText"}).all {prefs.getBoolean("war_verified_$it",false)}
+ fun configurationReady():Boolean {
+  val sunday=WarPreparationModel.day()!=null
+  val keys=listOf("clan","warTab","ourFlag","enemyFlag","roster","rosterClose")+if(sunday)listOf("rivalInfo","rivalText","infoOk")else emptyList()
+  return researchConfigurationReady()&&configuredFields(researchFields+keys)&&
+   keys.filter {it !in listOf("roster","rivalText")}.all {prefs.getBoolean("war_verified_$it",false)}
+ }
+ fun offer(roster:Boolean,configureAll:Boolean=false,test:Boolean=false,full:Boolean=false,ranking:Boolean=false,brawl:Boolean=false) {
   hide();app.battleOverlay.hide()
   if(ranking){offerRanking();return}
   panel=LinearLayout(context).apply {
    orientation=LinearLayout.VERTICAL;setPadding(dp(12),dp(8),dp(12),dp(8))
    background=ScannerAppearance.overlayPanel(context)
-   addView(ScannerAppearance.title(context,if(full)"Odczyt listy wojennej" else "Przygotowanie wojenne"))
+   addView(ScannerAppearance.title(context,if(brawl)"Symulacja bitki" else if(full)"Odczyt listy wojennej" else "Przygotowanie wojenne"))
    addView(ScannerAppearance.body(context,if(full)"Odczytam profile obu klanów. Profile z ostatnich 30 dni z niezmienioną mocą pomijam — skanuję tylko nowych i zmienionych graczy. STOP zapisuje postęp. "+(if(test)"Poza niedzielą rywal dostaje takie same bonusy jak nasz klan." else "W niedzielę odczytam też bonusy rywala; listę na tę wojnę zapisuję raz.")else "Poczekaj, aż gra się uruchomi. Rozpocznij przyciskiem poniżej."))
-   addView(ScannerAppearance.overlayAction(context,"Skanuj / Rozpocznij") {start(roster,configureAll,test,full)})
-   if(full)addView(ScannerAppearance.overlayAction(context,"Nowy skan — aktualizuj tylko zmiany") {fullStore.resetRun();start(roster,configureAll,test,full)})
-   if(full)addView(ScannerAppearance.button(context,"Usuń zapisane profile i skanuj od zera",quiet=true) {confirmClear {fullStore.clear();start(roster,configureAll,test,full)}})
+   addView(ScannerAppearance.overlayAction(context,"Skanuj / Rozpocznij") {start(roster,configureAll,test,full,brawl=brawl)})
+   if(full)addView(ScannerAppearance.overlayAction(context,"Nowy skan — aktualizuj tylko zmiany") {fullStore.resetRun();start(roster,configureAll,test,full,brawl=brawl)})
+   if(full)addView(ScannerAppearance.button(context,"Usuń zapisane profile i skanuj od zera",quiet=true) {confirmClear {fullStore.clear();start(roster,configureAll,test,full,brawl=brawl)}})
    addView(ScannerAppearance.overlayAction(context,"Zakończ") {stop()})
   }
   wm.addView(panel,WindowManager.LayoutParams(dp(250),-2,WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,PixelFormat.TRANSLUCENT).apply {gravity=Gravity.TOP or Gravity.START;x=dp(8);y=dp(30)})
@@ -239,8 +251,8 @@ class WarPreparationOverlay(private val context:Context) {
   val o=JSONObject(data.getString("rankingRoster",null)!!);val list=o.getJSONArray("members")
   o.getString("clan") to (0 until list.length()).map {WarMember(list.getJSONObject(it).getString("name"),list.getJSONObject(it).getDouble("power"))}
  }.getOrNull()?.takeIf {it.second.size>=2}
- fun start(roster:Boolean,configureAll:Boolean=false,test:Boolean=false,full:Boolean=false,ranking:Boolean=false,savedOnly:Boolean=false) {
-  hide();app.battleOverlay.hide();rankingMode=ranking&&full;fullAutoRetry=0;slim=false;autoCompacted=false
+ fun start(roster:Boolean,configureAll:Boolean=false,test:Boolean=false,full:Boolean=false,ranking:Boolean=false,savedOnly:Boolean=false,tech:Boolean=false,brawl:Boolean=false) {
+  hide();app.battleOverlay.hide();techMode=tech;brawlMode=brawl;rankingMode=ranking&&full;fullAutoRetry=0;slim=false;autoCompacted=false
   // A run checkpoint belongs to one mode; switching mode restarts navigation but keeps every profile.
   if(full&&!savedOnly&&fullStore.state()?.let {it.optBoolean("ranking")!=rankingMode}==true)fullStore.resetRun()
   // A run left for hours (e.g. overnight) is not resumed: members' powers changed, so the saved roster no
@@ -251,7 +263,7 @@ class WarPreparationOverlay(private val context:Context) {
   if(rankingMode)testMode=false
   if(roster && !testMode && WarPreparationModel.day()==null) {Toast.makeText(context,"Lista dostępna od niedzieli 01:00 do poniedziałku 01:00.",Toast.LENGTH_LONG).show();return}
   active=true;generation++;width=0;height=0;ours.clear();enemies.clear()
-  chrome=WarOverlayChrome(context,::stop,{manualListBoundary=true;say("Zatrzymuję przewijanie po bieżącym odczycie…")},if(rankingMode)"Odczyt rankingu klanu" else if(fullMode)"Odczyt listy wojennej" else "Przygotowanie wojenne",if(full)::setPaused else null) {touching ->
+  chrome=WarOverlayChrome(context,::stop,{manualListBoundary=true;say("Zatrzymuję przewijanie po bieżącym odczycie…")},if(techMode)"Odczyt badań klanu" else if(rankingMode)"Odczyt rankingu klanu" else if(brawlMode)"Symulacja bitki" else if(fullMode)"Odczyt listy wojennej" else "Przygotowanie wojenne",if(full)::setPaused else null) {touching ->
    app.battleOverlay.batchInteraction(touching)
    if(touching){protectedBeforeInteraction=shield.isShowing;shield.hide()}
    else if(active&&protectedBeforeInteraction)panelBounds()?.let {shield.show(it)}
@@ -264,12 +276,12 @@ class WarPreparationOverlay(private val context:Context) {
   listControl=ScannerAppearance.overlayAction(context,"Zatrzymaj listę") {manualListBoundary=true;say("Zatrzymuję przewijanie po bieżącym odczycie…")}.apply {visibility=View.GONE}
   chrome!!.addListControl(listControl!!);chrome!!.show()
   CaptureConnection.addStateListener(listener)
-  say(if(rankingMode)"Ranking klanu" else "Przygotowanie do bitwy wojennej")
+  say(if(techMode)"Badania klanu" else if(rankingMode)"Ranking klanu" else "Przygotowanie do bitwy wojennej")
   val g=generation
   if(savedOnly){val saved=savedRankingRoster();if(saved==null)fail("Brak zapisanej listy klanu. Zeskanuj nasz klan.")else {ownClan=saved.first;computeRanking(saved.second)};return}
-  if(roster && !testMode) app.mobile.warStatus { result -> if(active && g==generation) result.fold({ val st=JSONObject(it);canOverrideList=st.optBoolean("can_override");if(st.optBoolean("locked")&&!canOverrideList) fail("Lista na tę wojnę została już utworzona. Nie nadpisujemy jej.") else readyToBegin() },{fail(it.message?:"Nie udało się sprawdzić blokady serwera.")}) } else readyToBegin()
+  if(roster && !testMode && !brawlMode) app.mobile.warStatus { result -> if(active && g==generation) result.fold({ val st=JSONObject(it);canOverrideList=st.optBoolean("can_override");if(st.optBoolean("locked")&&!canOverrideList) fail("Lista na tę wojnę została już utworzona. Nie nadpisujemy jej.") else readyToBegin() },{fail(it.message?:"Nie udało się sprawdzić blokady serwera.")}) } else readyToBegin()
  }
- private fun readyToBegin() {if(fullMode&&fullStore.state()!=null){resumeFullWork();return};if(rankingMode){beginRanking();return}; step(0,"Przygotowanie badań");say("Dane postaci zapisane. Przygotowuję odczyt badań — nie dotykaj ekranu.");later(500) {begin()} }
+ private fun readyToBegin() {if(fullMode&&fullStore.state()!=null){resumeFullWork();return};if(rankingMode){beginRanking();return};if(techMode){step(0,"Badania klanu");say("Przygotowuję odczyt badań klanu — nie dotykaj ekranu.");later(500){begin()};return}; step(0,"Przygotowanie badań");say("Dane postaci zapisane. Przygotowuję odczyt badań — nie dotykaj ekranu.");later(500) {begin()} }
  private fun frame(fresh:Boolean=true,next:(Bitmap)->Unit) {
   val g=generation
   val request: (eu.komars.forgescanner.capture.FrameCallback)->Unit=if(fresh) CaptureConnection::requestFreshFrame else CaptureConnection::requestFrame
@@ -320,6 +332,7 @@ class WarPreparationOverlay(private val context:Context) {
  }
  private fun panelBounds():Rect? {val box=panel?:return null;val loc=IntArray(2);box.getLocationOnScreen(loc);return Rect(loc[0],loc[1],loc[0]+box.width,loc[1]+box.height)}
  private fun away(r:Rect,attempt:Int=0,next:()->Unit) {
+  eu.komars.forgescanner.ui.CaptureIndicator.avoid(r)
   val box=panel?:return;box.visibility=View.VISIBLE;box.measure(View.MeasureSpec.makeMeasureSpec((box.layoutParams as WindowManager.LayoutParams).width,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(0,View.MeasureSpec.UNSPECIFIED))
   val previous=box.layoutParams as WindowManager.LayoutParams
   val occupied=Rect(previous.x,previous.y,previous.x+maxOf(box.width,box.measuredWidth),previous.y+maxOf(box.height,box.measuredHeight))
@@ -352,10 +365,11 @@ class WarPreparationOverlay(private val context:Context) {
   say(title);mark(key,title) {r ->verifiedTap(key,r,next)}
  }
  private data class Scene(val states:Set<String>,val fields:Map<String,Rect>,val forbidden:List<Rect> = emptyList())
- private fun scene(image:Bitmap,homeFallback:Boolean=false):Scene {
-  val ww=minOf(360,image.width);val hh=image.height*ww/image.width
+ private fun scene(image:Bitmap):Scene {
+  val ww=minOf(360,image.width);val hh=kotlin.math.round(image.height.toDouble()*ww/image.width).toInt()
   val small=Bitmap.createScaledBitmap(image,ww,hh,true);val p=IntArray(ww*hh);small.getPixels(p,0,ww,0,0,ww,hh)
   val geometry=eu.komars.forgescanner.model.GameUiGeometryDetector(ww,hh,p)
+  val kind=geometry.screenKind()
   val observed=eu.komars.forgescanner.model.WarScreenGeometry.observe(ww,hh,p)
   fun scaled(r:eu.komars.forgescanner.model.PixelRegion)=Rect(r.left*width/ww,r.top*height/hh,r.right*width/ww,r.bottom*height/hh)
   val fields=mutableMapOf<String,Rect>();val states=mutableSetOf<String>()
@@ -367,14 +381,13 @@ class WarPreparationOverlay(private val context:Context) {
   } else if(observedResearch!=null) {
    states+="researchModal";fields["researchText"]=scaled(eu.komars.forgescanner.model.ResearchWindowGeometry.description(observedResearch));observed.researchClose?.let {fields["researchClose"]=scaled(it)}
   } else {
-   if(BattleHomeProof.isHome(ww,hh,p)||(homeFallback&&BattleHomeProof.isHome(image))) {
+   if(kind==eu.komars.forgescanner.model.GameScreenKind.HOME) {
     states+="home"
     eu.komars.forgescanner.model.WarNavigationGeometry.clanEntry(ww,hh,p)?.let {fields["clan"]=scaled(it)}
     geometry.detect(AutoScanStep.OPEN_RESEARCH)?.region?.let {fields["science"]=scaled(it)}
    }
    val flags=eu.komars.forgescanner.model.WarNavigationGeometry.flags(ww,hh,p)
    if(flags!=null){states+="war";fields["ourFlag"]=scaled(flags.first);fields["enemyFlag"]=scaled(flags.second);observed.info?.let {fields["rivalInfo"]=scaled(it)}}
-   val kind=geometry.screenKind()
    if(kind in listOf(eu.komars.forgescanner.model.GameScreenKind.SKILLS,eu.komars.forgescanner.model.GameScreenKind.PETS,eu.komars.forgescanner.model.GameScreenKind.TECHNOLOGY)) {
     states+="researchTabs";geometry.technologyTab()?.let {fields["technology"]=scaled(it)}
    }
@@ -399,18 +412,18 @@ class WarPreparationOverlay(private val context:Context) {
   
   // Resource scanning bans all technology content. War setup legitimately opens those nodes;
   // typed source/target checks and OCR donation/upgrade exclusions protect that context instead.
-  val resourceForbidden=if(geometry.screenKind()==eu.komars.forgescanner.model.GameScreenKind.TECHNOLOGY)emptyList()else geometry.forbiddenActionAreas().map {scaled(it)}
+  val resourceForbidden=if(kind==eu.komars.forgescanner.model.GameScreenKind.TECHNOLOGY)emptyList()else geometry.forbiddenActionAreas().map {scaled(it)}
   return Scene(states,fields,resourceForbidden)
  }
  private fun cleanFrame(next:(Bitmap)->Unit) {
   panel?.visibility=View.INVISIBLE
   later(180){frame {image->panel?.visibility=View.VISIBLE;next(image)}}
  }
- private fun observeScene(homeFallback:Boolean=false,next:(Result<Scene>)->Unit) {
+ private fun observeScene(next:(Result<Scene>)->Unit) {
   val g=generation
   cleanFrame {image ->
    analysisWorker.execute {
-    val result=runCatching {scene(image,homeFallback)};image.recycle()
+    val result=runCatching {scene(image)};image.recycle()
     h.post {if(active&&g==generation)next(result)}
    }
   }
@@ -471,13 +484,13 @@ class WarPreparationOverlay(private val context:Context) {
   say("Sprawdzam główny ekran gry. Nie dotykaj ekranu.")
   fun arrived(){openSection=null;screenFlow.observe(eu.komars.forgescanner.model.GameNavigationGraph.Screen.HOME);next()}
   fun waitForHome(){if(at>=8)fail("Nie potwierdzono głównego ekranu. Otwórz go w grze i wybierz Kontynuuj.")else later(250){returnHome(at+1,0,next)}}
-  observeScene(homeFallback=true) {result ->result.fold({observed ->
+  observeScene {result ->result.fold({observed ->
    when(val plan=WarReturnPlan.decide(observed.states,observed.fields.keys)) {
     WarReturnPlan.Step.Home->arrived()
     WarReturnPlan.Step.Wait->waitForHome()
     is WarReturnPlan.Step.Close->{
      // The next frame may already be HOME. Never draw or tap an earlier frame's close proposal.
-     observeScene(homeFallback=true) {freshResult ->freshResult.fold({fresh ->
+     observeScene {freshResult ->freshResult.fold({fresh ->
       when(val current=WarReturnPlan.decide(fresh.states,fresh.fields.keys)) {
        WarReturnPlan.Step.Home->arrived()
        is WarReturnPlan.Step.Close->if(current.key==plan.key) {
@@ -611,21 +624,39 @@ class WarPreparationOverlay(private val context:Context) {
   val c=image.getPixel((image.width*(.08+(i%64+.5)*.84/64)).toInt(),(image.height*(.30+(i/64+.5)*.46/64)).toInt())
   ((c ushr 16 and 255)*299+(c ushr 8 and 255)*587+(c and 255)*114)/1000
  }
- private fun rewindResearch(at:Int) {
-  if(at==0)researchTopGate=ResearchMotionGate(1)
+ private fun rewindResearch(at:Int,techPass:TechPass?=null) {
+  if(at==0) {
+   researchTopGate=ResearchMotionGate(1)
+   if(techPass!=null) {
+    techPass.stillPages=0;techPass.section=null
+    retryStep={rewindResearch(0,techPass)}
+   }
+  }
   if(at<3) {
    say("Wracam na początek badań: szybki ruch ${at+1}/3. Nie dotykaj ekranu.")
-   scrollResearch(true,brake=false) {if(at==2)waitForResearchStill {rewindResearch(at+1)} else rewindResearch(at+1)}
+   scrollResearch(true,brake=false) {if(at==2)waitForResearchStill {rewindResearch(at+1,techPass)} else rewindResearch(at+1,techPass)}
    return
   }
   say("Wracam na początek badań — sprawdzam koniec przewijania. Nie dotykaj ekranu.")
   panel?.visibility=View.INVISIBLE
   later(180) {frame(fresh=false) {image ->
    val top=researchTopGate.add(researchSample(image));image.recycle()
-   if(top){beginResearchSearch();return@frame}
+   if(top){
+    if(techMode){
+     val route=if(techConfig)null else techPass?.route?:savedTechRoute(width,height)
+     if(!techConfig&&route==null){fail("Brak trasy dla tego rozmiaru ekranu. Wróć do Badań klanu i wybierz Konfiguracja.");return@frame}
+     val pass=techPass?:TechPass(route)
+     if(route!=null) {
+      val checkpoints=route.values.groupingBy {it.page}.eachCount()
+      fullStore.log("clan-tech-route-start",JSONObject().put("pages",JSONObject(checkpoints.mapKeys {it.key.toString()})))
+      continueTechRoute(0,pass)
+     } else techSweep(0,pass,null)
+    } else beginResearchSearch()
+    return@frame
+   }
    if(at>=12){fail("Nie potwierdzono początku listy badań. Ponów lub wskaż badania ręcznie.");return@frame}
    panel?.visibility=View.VISIBLE
-   scrollResearch(true,brake=false) {waitForResearchStill {rewindResearch(at+1)}}
+   scrollResearch(true,brake=false) {waitForResearchStill {rewindResearch(at+1,techPass)}}
   }}
  }
  private fun scrollResearch(toTop:Boolean,brake:Boolean=true,next:()->Unit) {
@@ -693,7 +724,10 @@ class WarPreparationOverlay(private val context:Context) {
  }
  private fun prepareResearchWindow(health:Boolean) {
   retryStep={prepareResearchWindow(health)};repairKey="researchText"
-  if(rect("researchText")!=null && rect("researchClose")!=null){consumeResearchWindow(health);return}
+  locateResearchWindow {consumeResearchWindow(health)}
+ }
+ private fun locateResearchWindow(next:()->Unit) {
+  if(rect("researchText")!=null && rect("researchClose")!=null){next();return}
   say("Rozpoznaję wspólne okno badań: opis i czerwony X. Nie dotykaj ekranu.")
   panel?.visibility=View.INVISIBLE
   later(180) {frame {image ->
@@ -714,7 +748,7 @@ class WarPreparationOverlay(private val context:Context) {
    }
    if(modal==null){proposals.remove("researchText");proposals.remove("researchClose");prefs.edit().remove("war_researchText").remove("war_researchClose").apply()}
    if(small!==image)small.recycle();image.recycle();panel?.visibility=View.VISIBLE
-   consumeResearchWindow(health)
+   next()
   }}
  }
  private fun consumeResearchWindow(health:Boolean) {
@@ -760,6 +794,290 @@ class WarPreparationOverlay(private val context:Context) {
   val result=find(ww,hh,pixels).map {Rect(it.left*width/ww,it.top*height/hh,it.right*width/ww,it.bottom*height/hh)}
   if(small!==image)small.recycle()
   return result
+ }
+ // ---- Badania klanu: "Konfiguracja" walks the route with proposals to confirm (like the war list), finds the tracked
+ // research automatically and sets the info window once; "Skanuj" then reads only the tracked research. ----
+ private var techMode=false
+ /** true = configuration (route + automatic detection, one info window to confirm); false = scan. */
+ private var techConfig=false
+ /** Tracked research: the 18 icons chosen by the player (16 war-point nodes + 2 green-potion race nodes). */
+ private fun trackedTech():List<IntArray> = eu.komars.forgescanner.model.ClanTechPresets.tracked
+ private fun techName(index:Int):String = eu.komars.forgescanner.model.ClanTechPresets.names.getOrNull(index)?:"Badanie ${index+1}"
+ fun offerClanTech() {
+  hide();app.battleOverlay.hide()
+  val configured=savedTechRoute()!=null
+  panel=LinearLayout(context).apply {
+   orientation=LinearLayout.VERTICAL;setPadding(dp(12),dp(8),dp(12),dp(8))
+   background=ScannerAppearance.overlayPanel(context)
+   addView(ScannerAppearance.title(context,"Badania klanu"))
+   addView(ScannerAppearance.body(context,if(!configured)"Najpierw przejdę przez drzewo i zapiszę trasę oraz pola wszystkich 18 badań."
+    else "Odtworzę zapisane przesunięcia i kliknę zatwierdzone pola. Potwierdzone premie trafią do /tech show. Zapis wymaga uprawnień zarządu."))
+   if(configured)addView(ScannerAppearance.overlayAction(context,"Skanuj badania klanu") {techConfig=false;start(false,tech=true)})
+   addView(ScannerAppearance.overlayAction(context,if(configured)"Konfiguracja (ponownie)" else "Konfiguracja") {techConfig=true;start(false,tech=true)})
+   addView(ScannerAppearance.overlayAction(context,"Zakończ") {stop()})
+  }
+  wm.addView(panel,WindowManager.LayoutParams(dp(250),-2,WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,PixelFormat.TRANSLUCENT).apply {gravity=Gravity.TOP or Gravity.START;x=dp(8);y=dp(80)})
+  CaptureConnection.addStateListener(listener)
+ }
+ private data class TechTarget(val disc:Rect,val label:Rect,val print:IntArray)
+ private data class TechSite(val page:Int,val disc:Rect,val label:Rect)
+ private fun savedTechRoute(w:Int?=null,h:Int?=null):Map<Int,TechSite>? = runCatching {
+  val route=JSONObject(data.getString("clanTechConfirmedRouteV1",null)?:return null)
+  val savedWidth=route.getInt("width");val savedHeight=route.getInt("height")
+  if(savedWidth<=0||savedHeight<=0||(w!=null&&w!=savedWidth)||(h!=null&&h!=savedHeight))return null
+  val bounds=Rect(0,0,savedWidth,savedHeight)
+  fun field(o:JSONObject,key:String):Rect {
+   val a=o.getJSONArray(key)
+   return Rect(a.getInt(0),a.getInt(1),a.getInt(2),a.getInt(3)).also {require(!it.isEmpty&&bounds.contains(it))}
+  }
+  val rows=route.getJSONArray("nodes")
+  require(rows.length()==trackedTech().size)
+  buildMap {
+   for(i in 0 until rows.length()){
+    val o=rows.getJSONObject(i);val index=o.getInt("index");val page=if(o.has("swipesFromTop"))o.getInt("swipesFromTop")else o.getInt("page")
+    require(index in trackedTech().indices&&page in 0..TECH_MAX_PAGES&&!containsKey(index))
+    put(index,TechSite(page,field(o,"disc"),field(o,"label")))
+   }
+  }
+ }.getOrNull()
+ private class TechPass(val route:Map<Int,TechSite>?=null) {
+  val sites=linkedMapOf<Int,TechSite>()
+  val distance=HashMap<Int,Double>()
+  val collected=LinkedHashMap<String,JSONObject>()
+  var section:ClanTechSections.Section?=null
+  var stillPages=0
+ }
+ // Configuration and replay share exactly the same held drag and settling delay.
+ private fun scrollTech(next:()->Unit)=scrollResearch(false,brake=true){later(500,next)}
+ private fun continueTechRoute(current:Int,pass:TechPass,includeCurrent:Boolean=true) {
+  val route=requireNotNull(pass.route)
+  val pages=route.filterKeys {it !in pass.distance}.values.map {it.page}
+  val target=ResearchScrollGesture.nextCheckpoint(pages,current,includeCurrent)
+  if(target==null){techDone(pass);return}
+  step(2,"Zapisana trasa badań · $target przesunięć od góry")
+  retryStep={rewindResearch(0,pass)};repairKey=null
+  fun move(at:Int) {
+   if(at==target){
+    val queue=route.filter { (index,site)->site.page==at&&index !in pass.distance }
+     .toList().sortedBy {it.first}
+    fullStore.log("clan-tech-route-page",JSONObject().put("swipesFromTop",at).put("confirmedFields",queue.size))
+    techNode(queue,0,pass){continueTechRoute(at,pass,includeCurrent=false)}
+    return
+   }
+   say("Odtwarzam trasę: przesunięcie ${at+1}/$target. Nie dotykaj gry.")
+   scrollTech {move(at+1)}
+  }
+  move(current)
+ }
+ private fun techSweep(page:Int,pass:TechPass,previous:IntArray?) {
+  retryStep={techSweep(page,pass,previous)};repairKey=null
+  val tracked=trackedTech()
+  step(2,"Konfiguruję trasę · $page przesunięć od góry")
+  say("Zatwierdzone pola: ${pass.sites.size}/${tracked.size}. Nie dotykaj gry podczas przewijania.")
+  panel?.visibility=View.INVISIBLE
+  later(220) {frame {image ->
+   val sample=researchSample(image)
+   pass.stillPages=if(previous!=null&&techSame(previous,sample))pass.stillPages+1 else 0
+   if(pass.stillPages>=2){image.recycle();panel?.visibility=View.VISIBLE;techDone(pass);return@frame}
+   val ww=minOf(360,image.width);val hh=image.height*ww/image.width
+   val small=Bitmap.createScaledBitmap(image,ww,hh,true);val pixels=IntArray(ww*hh);small.getPixels(pixels,0,ww,0,0,ww,hh)
+   fun scaled(r:eu.komars.forgescanner.model.PixelRegion)=Rect(r.left*width/ww,r.top*height/hh,r.right*width/ww,r.bottom*height/hh)
+   val nodes=eu.komars.forgescanner.model.ClanTechNodes.find(ww,hh,pixels)
+   val targets=nodes.map {TechTarget(scaled(it.disc),scaled(it.label),eu.komars.forgescanner.model.ClanTechNodes.fingerprint(ww,hh,pixels,it.disc))}
+   if(targets.isEmpty()||page==0)saveTechFrame(image,page,targets.size)
+   // Section headers ("Wojna klanów", "Klanowe mikstury techniczne", "Moc", …) from one OCR pass of the page.
+   val ow=minOf(720,image.width);val oh=image.height*ow/image.width
+   val ocrImage=Bitmap.createScaledBitmap(image,ow,oh,true)
+   if(small!==image&&small!==ocrImage)small.recycle()
+   if(image!==ocrImage)image.recycle()
+   panel?.visibility=View.VISIBLE
+   val g=generation
+   ocr.process(InputImage.fromBitmap(ocrImage,0)).addOnCompleteListener {task ->
+    ocrImage.recycle()
+    if(!active||g!=generation)return@addOnCompleteListener
+    val headers=(if(task.isSuccessful)task.result.textBlocks else emptyList()).flatMap {it.lines}.mapNotNull {line ->
+     val box=line.boundingBox?:return@mapNotNull null
+     // Section headers are centred inside the tree area; skip the bottom tabs, the "Bonusy Wzniesienia" bubble and the top bar.
+     if(box.centerX() !in ow*3/10..ow*7/10||box.centerY() !in oh/10..oh*8/10)return@mapNotNull null
+     ClanTechSections.header(line.text)?.let {ClanTechSections.Header(box.centerY()*height/oh,it)}
+    }
+    val carried=pass.section
+    pass.section=ClanTechSections.last(headers,carried)
+    fullStore.log("clan-tech-page",JSONObject().put("page",page).put("icons",targets.size).put("headers",headers.joinToString()))
+    techMatch(targets,headers,carried,page,pass,sample,tracked)
+   }
+  }}
+ }
+ /** Tracked icons on this page, matched only inside their own section; an icon already read is read again only for a clearly better match. */
+ private fun techMatch(targets:List<TechTarget>,headers:List<eu.komars.forgescanner.model.ClanTechSections.Header>,carried:eu.komars.forgescanner.model.ClanTechSections.Section?,page:Int,pass:TechPass,sample:IntArray,tracked:List<IntArray>) {
+  val assigned=ClanTechSections.Section.entries.flatMap {section ->
+   val here=targets.filter {ClanTechSections.sectionOf(it.disc.top,headers,carried)==section}
+   val wanted=tracked.indices.filter {ClanTechSections.allowed(section,it)}
+   val matcher=eu.komars.forgescanner.model.ClanTechNodes
+   val matches=when(section){
+    ClanTechSections.Section.WAR->matcher.assignWarPoints(width,here.map {eu.komars.forgescanner.model.PixelRegion(it.disc.left,it.disc.top,it.disc.right,it.disc.bottom)},here.map {it.print},tracked)
+    ClanTechSections.Section.POTIONS->matcher.assign(here.map {it.print},wanted.map {tracked[it]}).mapValues {wanted[it.value]}
+    else->emptyMap()
+   }
+   matches.map {(i,j)->
+    val error=if(j in 10..15)matcher.calendarDistance(here[i].print,tracked) else matcher.distance(here[i].print,tracked[j])
+    Triple(here[i],j,error)
+   }
+  }.filter {(_,index,_)->index !in pass.sites}.sortedBy {it.second}
+  if(assigned.isEmpty()){techScroll(page,pass,sample);return}
+  val first=assigned.first()
+  selectTechFields(page,assigned,pass) {
+   val site=pass.sites.getValue(first.second)
+   if(rect("researchText")==null||rect("researchClose")==null) {
+    verifiedTap("clanTechNode",site.disc) {
+     retryStep={confirmTechWindow {techScroll(page,pass,sample)}}
+     confirmTechWindow {techScroll(page,pass,sample)}
+    }
+   } else techScroll(page,pass,sample)
+  }
+ }
+ private fun selectTechFields(page:Int,assigned:List<Triple<TechTarget,Int,Double>>,pass:TechPass,next:()->Unit) {
+  panel?.visibility=View.INVISIBLE
+  later(180){frame {image->
+   selectionFrame=image
+   val fields=assigned.associate {(target,index,_)->index.toString() to (techName(index) to Rect(target.disc))}
+   selector=ScreenSelectionWindow(context,image,false,{_,_,_->},
+    {releaseSelectionFrame();fail("Przerwano zatwierdzanie pól. Kontynuuj, aby wrócić do tego widoku.")},
+    titleText="Zatwierdź badania · $page przesunięć od góry",
+    instructionText="Każda ramka obejmuje ikonę badania. Wybierz nazwę po prawej, żeby poprawić pole, i zatwierdź ten widok.",
+    minimumSelectionSize=8,fields=fields,onFields={values->
+     selector=null;app.setScannerBusy("war",active);releaseSelectionFrame();panel?.visibility=View.VISIBLE
+     val bounds=Rect(0,0,width,height)
+     val sites=assigned.map {(target,index,_)->
+      val disc=values.getValue(index.toString())
+      val label=Rect(target.label).apply {offset(disc.centerX()-target.disc.centerX(),disc.centerY()-target.disc.centerY())}
+      index to TechSite(page,disc,label)
+     }
+     if(sites.any {!bounds.contains(it.second.disc)||!bounds.contains(it.second.label)}||
+      sites.indices.any {i->(0 until i).any {j->Rect.intersects(sites[i].second.disc,sites[j].second.disc)}}) {
+      retryStep={selectTechFields(page,assigned,pass,next)}
+      fail("Pola ikon nachodzą na siebie lub etykieta wychodzi poza ekran. Popraw ten widok.")
+     } else {
+      for((index,site) in sites){pass.sites[index]=site;pass.distance[index]=0.0}
+      fullStore.log("clan-tech-fields-confirmed",JSONObject().put("swipesFromTop",page).put("count",sites.size))
+      next()
+     }
+    })
+   app.setScannerBusy("war",false)
+   selector!!.show()
+  }}
+ }
+ private fun confirmTechWindow(next:()->Unit) {
+  locateResearchWindow {
+   mark("researchText","Opis badania: nazwa i bieżąca premia") {
+    tap("researchClose","Czerwony X otwartego okna badania",next)
+   }
+  }
+ }
+ private fun techScroll(page:Int,pass:TechPass,sample:IntArray) {
+  if(page>=TECH_MAX_PAGES||pass.sites.size>=trackedTech().size){techDone(pass);return}
+  say("Przewijam drzewo badań w dół. Nie dotykaj gry.")
+  scrollTech {techSweep(page+1,pass,sample)}
+ }
+ private fun techSame(a:IntArray,b:IntArray):Boolean = a.size==b.size&&a.indices.sumOf {kotlin.math.abs(a[it]-b[it]).toLong()}/a.size<4
+ private fun saveTechFrame(image:Bitmap,page:Int,count:Int) {
+  runCatching {
+   val dir=java.io.File(context.getExternalFilesDir(null),"logs/clan-tech").apply {mkdirs()}
+   java.io.File(dir,"page-$page-nodes-$count-${System.currentTimeMillis()}.png").outputStream().use {image.compress(Bitmap.CompressFormat.PNG,100,it)}
+  }
+ }
+ private fun techNode(queue:List<Pair<Int,TechSite>>,at:Int,pass:TechPass,next:()->Unit) {
+  if(!active)return
+  if(at>=queue.size){next();return}
+  val (index,target)=queue[at]
+  retryStep={techNode(queue,at,pass,next)}
+  read(target.label,variant=0) {firstLabel ->
+   read(target.label,variant=1) {secondLabel ->
+   val labels=listOf(firstLabel,secondLabel)
+   verifiedTap("clanTechNode",target.disc) {
+    fun readWindow(textRect:Rect,variant:Int) {
+     retryStep={readWindow(textRect,variant)};repairKey="researchText"
+     read(textRect,variant=variant) {text ->
+      val catalog=eu.komars.forgescanner.model.ClanTechCatalog
+      val entry=requireNotNull(catalog.entry(index))
+      val level=catalog.level(index,labels,text)?.takeIf {catalog.dayMatches(index,text)}
+      fullStore.log("clan-tech-node",JSONObject().put("index",index).put("contrast",variant).put("labels",JSONArray(labels))
+       .put("window",text.take(240)).put("level",level?:JSONObject.NULL))
+      if(level==null&&variant<2){readWindow(textRect,variant+1);return@read}
+      if(level!=null) {
+       pass.distance[index]=0.0
+       pass.collected[entry.key]=techValue(entry.key,entry.name,level,entry.maxLevel,level*entry.stepPercent)
+       say("Badanie ${pass.distance.size}/${trackedTech().size}: ${entry.name} · $level/${entry.maxLevel}")
+       tap("researchClose","Czerwony X otwartego okna badania") {techNode(queue,at+1,pass,next)}
+      } else {
+       // An unexpected screen must not turn the stored close position into an arbitrary tap.
+       cleanFrame {image->
+        val expected=rect("researchClose")
+        val close=expected?.let {eu.komars.forgescanner.vision.CloseButtonDetector().detect(image,it)}
+        image.recycle()
+        if(close==null){
+         fail("Zapisana trasa nie otworzyła badania ${entry.name}. Wróć do aplikacji i ponów konfigurację.")
+         addReturnToApp()
+        } else verifiedTap("researchClose",close) {techNode(queue,at+1,pass,next)}
+       }
+      }
+     }
+    }
+    locateResearchWindow {
+     mark("researchText","Opis badania: nazwa i bieżący procent") {r->readWindow(r,0)}
+    }
+   }
+   }
+  }
+ }
+ private fun techValue(key:String,name:String,level:Int,max:Int,percent:Double)=JSONObject()
+  .put("key",key).put("name",name).put("level",level).put("max",max).put("maxed",level==max).put("percent",percent)
+ private fun saveTechRoute(pass:TechPass) {
+  fun field(r:Rect)=JSONArray(listOf(r.left,r.top,r.right,r.bottom))
+  val nodes=pass.sites.map { (index,site)->
+   JSONObject().put("index",index).put("swipesFromTop",site.page).put("disc",field(site.disc)).put("label",field(site.label))
+  }
+  val route=JSONObject().put("width",width).put("height",height).put("nodes",JSONArray(nodes))
+  data.edit().putString("clanTechConfirmedRouteV1",route.toString()).apply()
+  fullStore.log("clan-tech-route-saved",JSONObject().put("nodes",nodes.size).put("swipes",JSONArray(pass.sites.values.map {it.page}.distinct().sorted())))
+ }
+ private fun finishTechConfiguration() {
+  step(3,"Konfiguracja technologii zapisana")
+  say("Zapisano zatwierdzone pola 18/18 badań i liczbę przesunięć od góry.")
+  warning?.visibility=View.GONE;active=false;addReturnToApp()
+  recovery?.addView(ScannerAppearance.overlayAction(context,"Skanuj badania klanu") {techConfig=false;start(false,tech=true)},0)
+ }
+ private fun techDone(pass:TechPass) {
+  val missing=trackedTech().indices.filter {it !in pass.distance}.map(::techName)
+  if(techConfig) {
+   if(missing.isEmpty()) {
+    saveTechRoute(pass)
+    leaveResearch {finishTechConfiguration()}
+   }
+   else {
+    retryStep={rewindResearch(0)};repairKey=null
+    fail("Znaleziono ${pass.sites.size}/${trackedTech().size} badań. Brakuje pól: ${missing.joinToString()}. Kontynuuj, aby ponowić przejście drzewa.")
+    addReturnToApp()
+   }
+   return
+  }
+  if(pass.collected.isEmpty()){fail("Nie potwierdzono żadnego bonusu. Poprzednie wartości pozostają zapisane.");return}
+  leaveResearch {uploadTech(pass,missing)}
+ }
+ private fun uploadTech(pass:TechPass,missing:List<String>) {
+  retryStep={uploadTech(pass,missing)};repairKey=null
+  step(3,"Aktualizuję technologię");say("Wysyłam ${pass.collected.size} potwierdzonych bonusów do /tech show…")
+  val body=JSONObject().put("request_id",UUID.randomUUID().toString()).put("observed_at",Instant.now().toString())
+   .put("nodes",JSONArray(pass.collected.values.toList()))
+  val g=generation
+  app.mobile.sendClanTech(body) {result ->
+   if(active&&g==generation)result.fold({response ->
+    val count=runCatching {JSONObject(response).getInt("nodes")}.getOrDefault(pass.collected.size)
+    status?.text="Zapisano $count bonusów. Discord: /tech show."+
+     if(missing.isNotEmpty())" Zachowano poprzednie wartości: ${missing.joinToString()}." else ""
+    warning?.visibility=View.GONE;active=false;addReturnToApp()
+   },{fail(it.message?:"Nie udało się zaktualizować technologii.")})
+  }
  }
  private fun warScreen() {
   retryStep={warScreen()}
@@ -1354,6 +1672,7 @@ class WarPreparationOverlay(private val context:Context) {
   return true
  }
  private fun computeFullWar() {
+  if(brawlMode){upload();return}
   retryStep={computeFullWar()};repairKey=null;setRosterControls(0);clearRecoveryActions()
   if(retryMissingAutomatically(ownOnly=false))return
   val own=ours.values;val rival=enemies.values
@@ -1447,7 +1766,7 @@ class WarPreparationOverlay(private val context:Context) {
   }
   val asPreview=testMode||previewOnly
   val day=if(asPreview)"TEST" else WarPreparationModel.day()?:run {fail("Okno wojenne zakończone.");return}
-  if(fullMode&&fullResult==null){computeFullWar();return}
+  if(fullMode&&!brawlMode&&fullResult==null){computeFullWar();return}
   val body=JSONObject().put("test_mode",asPreview).put("real_tech",previewOnly).put("request_id",uploadRequestId?:UUID.randomUUID().toString().also {uploadRequestId=it}).put("own_clan",ownClan).put("enemy_clan",enemyClan).put("observed_at",Instant.now().toString()).put("war_day",day).put("overwrite",overwrite).put("notify",notify)
   fun list(values:Collection<WarMember>)=JSONArray().apply {values.forEach {put(JSONObject().put("name",it.name).put("power",it.power))}}
   body.put("ours",list(ours.values)).put("enemies",list(enemies.values)).put("our_count",ours.size).put("enemy_count",enemies.size)
@@ -1459,9 +1778,17 @@ class WarPreparationOverlay(private val context:Context) {
   }
   logRosterState("upload");say("Wysyłam: $ownClan ${ours.resolvedCount}/$ourExpected → $enemyClan ${enemies.resolvedCount}/$enemyExpected. Nie zamykaj aplikacji.")
   val g=generation
-  app.mobile.sendWar(body) {result ->
+  app.mobile.sendWar(body,brawlOnly=brawlMode) {result ->
    if(fullMode)fullStore.log("upload",JSONObject().put("kind",if(asPreview)"war-preview" else "war").put("ok",result.isSuccess).put("error",result.exceptionOrNull()?.message?:JSONObject.NULL))
-   if(active && g==generation)result.fold({if(!asPreview)data.edit().putString("uploadedDay",day).apply();status?.text=if(previewOnly)"Podgląd zaktualizowany (z techem rywala). Oficjalna lista bez zmian. Na Discordzie: /report war-list-preview — tam zarząd może ustawić go jako oficjalny." else if(testMode)"Lista poglądowa zapisana (równe bonusy, poza niedzielą). Na Discordzie: /report war-list-preview. Odczyt można powtórzyć." else "Lista zapisana na Discordzie. Zablokowano ponowny zapis w tej wojnie.";warning?.visibility=View.GONE;active=false;if(fullMode&&asPreview)addFullRecovery();addReturnToApp()},{error->
+   if(active && g==generation)result.fold({if(!asPreview&&!brawlMode)data.edit().putString("uploadedDay",day).apply();val savedStatus=if(brawlMode) { if(testMode) "Symulacja bitki · równa technologia obu klanów" else "Symulacja bitki · technologia obu klanów" } else if(previewOnly)"Podgląd zaktualizowany (z techem rywala). Oficjalna lista bez zmian. Na Discordzie: /report war-list-preview — tam zarząd może ustawić go jako oficjalny." else if(testMode)"Lista poglądowa zapisana (równe bonusy, poza niedzielą). Na Discordzie: /report war-list-preview. Odczyt można powtórzyć." else "Lista zapisana na Discordzie. Zablokowano ponowny zapis w tej wojnie."
+    val brawl=runCatching { JSONObject(it).optJSONObject("brawl") }.getOrNull()
+    val brawlStatus=brawl?.let { odds ->
+      val nearest=(100*odds.getDouble("nearest")).toInt()
+      val focus=(100*odds.getDouble("focus")).toInt()
+      "\nBitka (+1000 pkt), model eksperymentalny: ${nearest}% przy najbliższym celu, ${focus}% przy skupieniu ognia."
+    } ?: if(fullMode) "\nBrak szacunku bitki dla tego skanu." else ""
+    status?.text=savedStatus+brawlStatus
+    warning?.visibility=View.GONE;active=false;if(fullMode&&asPreview)addFullRecovery();addReturnToApp()},{error->
      if(!testMode&&!previewOnly&&!overwrite&&canOverrideList&&error.message.orEmpty().let {it.contains("Potwierdź aktualizację")||it.contains("już istnieje")}){confirmListUpdate();return@fold}
      fail(error.message?:"Nie udało się wysłać listy.");if(fullMode)addFullRecovery()})}
  }

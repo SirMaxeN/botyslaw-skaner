@@ -52,12 +52,16 @@ class MobileSyncClient(context: Context, private val demoMode: () -> Boolean = {
         if (demoMode()) { main.post { callback(Result.success("DEMO: zasymulowano wysłanie danych. Nic nie wysłano do serwera ani Discorda.")) }; return }
         val credential = settings.getString("credential", null)
         execute(callback) {
-        require(values.keys.containsAll(ResourceField.entries)) { "Sprawdź wszystkie wartości." }
+        require(values.keys.containsAll(ResourceField.required)) { "Sprawdź wszystkie wartości." }
         val names = mapOf(ResourceField.TICKETS to "skill_tickets", ResourceField.MOUNT_KEYS to "mount_keys",
             ResourceField.HAMMERS to "hammers", ResourceField.PETS to "pets", ResourceField.MOUNTS to "mounts",
             ResourceField.SKILL_COST to "skill_cost_x5", ResourceField.MOUNT_COST to "mount_cost")
         val resources = JSONObject()
         names.forEach { (field, name) -> resources.put(name, values.getValue(field)) }
+        // Optional extras (server keys since bot 2026-11-09); sent only when read or typed.
+        val extras = mapOf(ResourceField.COINS to "coins", ResourceField.GEMS to "gems", ResourceField.SHELLS to "shells",
+            ResourceField.RED_VIALS to "red_vials", ResourceField.GREEN_VIALS to "green_vials")
+        extras.forEach { (field, name) -> values[field]?.let { resources.put(name, it) } }
         val payload = JSONObject().put("request_id", UUID.randomUUID().toString())
             .put("observed_at", Instant.now().toString()).put("values", resources)
         val response = post("resources", payload, token(credential))
@@ -69,9 +73,14 @@ class MobileSyncClient(context: Context, private val demoMode: () -> Boolean = {
         val credential=settings.getString("credential",null)
         execute(callback) { post("war-status",JSONObject(),token(credential)).toString() }
     }
-    fun sendWar(payload:JSONObject,callback:(Result<String>)->Unit) {
+    fun sendWar(payload:JSONObject,brawlOnly:Boolean=false,callback:(Result<String>)->Unit) {
         val credential=settings.getString("credential",null)
-        execute(callback) { post(if(payload.optBoolean("test_mode"))"war-test" else "war-list",payload,token(credential)).toString() }
+        execute(callback) { post(if(brawlOnly)"war-brawl" else if(payload.optBoolean("test_mode"))"war-test" else "war-list",payload,token(credential)).toString() }
+    }
+    /** Clan research nodes read by "Badania klanu" (POST /mobile/tech). */
+    fun sendClanTech(payload:JSONObject,callback:(Result<String>)->Unit) {
+        val credential=settings.getString("credential",null)
+        execute(callback) { post("tech",payload,token(credential)).toString() }
     }
     fun sendClanRanking(payload:JSONObject,callback:(Result<String>)->Unit) {
         val credential=settings.getString("credential",null)

@@ -30,11 +30,13 @@ for relative in files:
     if any(pattern.search(text) for pattern in patterns):
         findings.append((relative, 'possible credential material'))
 # Shared capture/vision and resource proposals must not depend on battle policies.
-shared = ["vision/GameUiDetector.kt", "vision/ResourceFieldProposal.kt",
-          "model/GameUiGeometryDetector.kt", "model/CloseButtonPixelDetector.kt",
-          "ui/CaptureIndicator.kt", "capture/CaptureConnection.kt", "capture/FrameCaptureService.kt"]
-for relative in shared:
-    path = root / "app/src/main/java/eu/komars/forgescanner" / relative
+android = root / "app/src/main/java/eu/komars/forgescanner"
+common = root / "shared/src/commonMain/kotlin/eu/komars/forgescanner"
+shared = [android / file for file in ("vision/GameUiDetector.kt", "vision/ResourceFieldProposal.kt",
+          "ui/CaptureIndicator.kt", "capture/CaptureConnection.kt", "capture/FrameCaptureService.kt")]
+shared += [common / file for file in ("model/GameUiGeometryDetector.kt", "model/CloseButtonPixelDetector.kt")]
+for path in shared:
+    relative = path.relative_to(root).as_posix()
     source = path.read_text(encoding="utf-8")
     if re.search(r"eu\.komars\.forgescanner\.battle\.|\b(?:War|Battle)[A-Z]\w*", source):
         findings.append((relative, "shared/resource module depends on battle policy"))

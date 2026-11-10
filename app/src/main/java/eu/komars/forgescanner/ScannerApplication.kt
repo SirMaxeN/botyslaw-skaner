@@ -10,7 +10,7 @@ import eu.komars.forgescanner.ui.OverlayController
 import eu.komars.forgescanner.sync.MobileSyncClient
 
 /** Bump to clear saved screen fields once more after an incompatible overlay/navigation change. */
-private const val SETUP_SCHEMA = 2
+private const val SETUP_SCHEMA = 3
 
 class ScannerApplication : Application() {
     val knowledge by lazy { eu.komars.forgescanner.sync.SharedKnowledgeSync(this, mobile) }
@@ -65,6 +65,11 @@ class ScannerApplication : Application() {
                         eu.komars.forgescanner.model.ResourceField.TICKETS -> 9880L
                         eu.komars.forgescanner.model.ResourceField.SKILL_COST -> 188L
                         eu.komars.forgescanner.model.ResourceField.PETS -> 28L
+                        eu.komars.forgescanner.model.ResourceField.COINS -> 2_120_000L
+                        eu.komars.forgescanner.model.ResourceField.GEMS -> 7L
+                        eu.komars.forgescanner.model.ResourceField.SHELLS -> 78L
+                        eu.komars.forgescanner.model.ResourceField.RED_VIALS -> 46_600L
+                        eu.komars.forgescanner.model.ResourceField.GREEN_VIALS -> 1_680L
                     })
                 }
             }
@@ -91,7 +96,7 @@ class ScannerApplication : Application() {
     }
 
     /**
-     * Screen fields saved by 1.3.x and earlier do not match the current overlays and navigation.
+     * Screen fields saved before the current setup schema must be configured again.
      * Clear them once after the update (before any store reads them); Discord pairing, drafts and
      * learned reading data stay. The test build keeps its calibration (AGENTS.md).
      */

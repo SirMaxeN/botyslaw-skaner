@@ -75,7 +75,7 @@ class SavedNavigationRunner(private val port: Port, private val scheduler: Sched
             AutoScanStep.CLOSE_MOUNTS, AutoScanStep.CLOSE_RESEARCH -> CLOSE_SETTLE_MILLIS
             AutoScanStep.OPEN_RESEARCH -> RESEARCH_OPEN_SETTLE_MILLIS
             AutoScanStep.OPEN_MOUNTS -> MOUNTS_OPEN_SETTLE_MILLIS
-            AutoScanStep.OPEN_SKILLS, AutoScanStep.OPEN_PETS -> TAB_SETTLE_MILLIS
+            AutoScanStep.OPEN_SKILLS, AutoScanStep.OPEN_PETS, AutoScanStep.OPEN_TECH -> TAB_SETTLE_MILLIS
             else -> throw IllegalArgumentException("Only navigation steps have a settling gap.")
         }
     }

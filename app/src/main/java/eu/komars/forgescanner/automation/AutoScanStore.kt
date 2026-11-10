@@ -76,7 +76,8 @@ class AutoScanStore(context: Context) {
         }.getOrDefault(false)
     }
 
-    fun isReady(calibrations: CalibrationStore): Boolean = AutoScanStep.entries.all { step ->
+    // Optional extras (coins, gems, shells, vials, tech tab) never block a scan; they are skipped when not set.
+    fun isReady(calibrations: CalibrationStore): Boolean = AutoScanStep.entries.filter { !it.optional }.all { step ->
         step.target?.let(calibrations::has) ?: hasNavigation(step)
     }
     fun clear(step: AutoScanStep) = preferences.edit().remove(step.name).apply()

@@ -64,6 +64,20 @@ class CloseButtonPixelDetectorTest {
         assertNull(CloseButtonPixelDetector().detect(width, height, pixels))
     }
 
+    @Test fun currencyAndChatLookalikesDoNotHideAnActualCloseControl() {
+        val pixels = image()
+        val detector = CloseButtonPixelDetector()
+        paint(pixels, 250, 45, radius = 12)
+        paint(pixels, 38, 488, radius = 12)
+        assertFalse(detector.hasGameplayClose(width, height, pixels))
+        paint(pixels, 160, 440)
+        assertTrue(detector.hasGameplayClose(width, height, pixels))
+        assertTrue(detector.detectGameplay(width,height,pixels)!!.let {160 in it.left..it.right && 440 in it.top..it.bottom})
+        paint(pixels, 95, 280)
+        assertTrue(detector.hasGameplayClose(width,height,pixels))
+        assertNull(detector.detectGameplay(width,height,pixels))
+    }
+
     @Test fun optionalPrivateGameReference() {
         val path = System.getenv("SCANNER_CLOSE_REFERENCE")
         org.junit.Assume.assumeTrue(path != null)

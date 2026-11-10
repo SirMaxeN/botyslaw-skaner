@@ -32,7 +32,49 @@ internal class FullWarComputation(private val store:FullWarStore) {
   // The global assignment can change after refinement; refine its new primary targets too.
   for((i,j) in WarAssignment.best(probabilities).withIndex())if(j>=0)results[i][j]=compute(i,j,1024)
   val matrix=JSONArray();for(i in a.indices)for(j in b.indices)matrix.put(JSONObject(results[i][j]!!.toString()).put("ally",i).put("enemy",j))
+  val hint=runCatching {techHint(a,b,enemies,probabilities,own,rival,cancelled)}.getOrElse {if(it is CancellationException)throw it;null}
   return JSONObject().put("model",FullWarStore.MODEL).put("matrix",matrix).put("complete_ours",a.count {it!=null}).put("complete_enemies",b.count {it!=null}).put("experimental",true)
+   .apply {if(hint!=null)put("tech_hint",hint)}
+ }
+ /**
+  * Rivals nobody beats (best simulated chance < 50%): how many clan-tech levels of war Damage, Health or both
+  * (+100% each per level, max 100 levels — forgemaster.pro clan tech, game 2.11) our best three attackers would need.
+  * Cheap bounded search (256 trials per probe), cached like the main matrix.
+  */
+ private fun techHint(a:List<JSONObject?>,b:List<JSONObject?>,enemies:List<WarMember>,p:Array<DoubleArray>,own:WarBonus,rival:WarBonus,cancelled:()->Boolean):JSONObject? {
+  val damageLevel=(own.damage/TECH_STEP).toInt().coerceIn(0,TECH_MAX);val healthLevel=(own.health/TECH_STEP).toInt().coerceIn(0,TECH_MAX)
+  val best=b.indices.map {j->a.indices.mapNotNull {i->p[i][j].takeIf {v->v.isFinite()}}.maxOrNull()}
+  val beaten=best.count {it!=null&&it>=.5}
+  val hard=b.indices.filter {best[it]!=null&&best[it]!!<.5}.sortedByDescending {best[it]!!}.take(HINT_ENEMIES)
+  if(hard.isEmpty())return null
+  fun chance(i:Int,j:Int,bonus:WarBonus):Double {
+   if(cancelled())throw CancellationException()
+   val key=FullWarStore.hash("${FullWarStore.MODEL}|war120|hint|${FullWarStore.hash(a[i].toString())}|${FullWarStore.hash(b[j].toString())}|$bonus|$rival")
+   val saved=store.pair(key)?.takeIf {it.has("wins")}
+   val wins=saved?.optInt("wins")?:PvpBattleEngine.simulate(FullProfileCodec.profile(a[i]!!),FullProfileCodec.profile(b[j]!!),bonus,rival,HINT_TRIALS,Random(key.hashCode()),rules=WAR_RULES,shouldStop=cancelled).wins.also {store.pair(key,JSONObject().put("wins",it).put("trials",HINT_TRIALS).put("savedAt",System.currentTimeMillis()))}
+   return wins.toDouble()/HINT_TRIALS
+  }
+  /** Fewest extra levels (1..room) at which one of the attackers wins ≥50%; null when even the maximum is not enough. */
+  fun needed(j:Int,room:Int,bonus:(Int)->WarBonus):Int? {
+   if(room<=0)return null
+   val attackers=a.indices.filter {p[it][j].isFinite()}.sortedByDescending {p[it][j]}.take(3)
+   if(attackers.isEmpty())return null
+   fun wins(levels:Int)=attackers.any {chance(it,j,bonus(levels))>=.5}
+   if(!wins(room))return null
+   var low=0;var high=room
+   while(high-low>1){val mid=(low+high)/2;if(wins(mid))high=mid else low=mid}
+   return high
+  }
+  val rows=JSONArray()
+  for(j in hard) {
+   val damageRoom=TECH_MAX-damageLevel;val healthRoom=TECH_MAX-healthLevel
+   val damage=needed(j,damageRoom) {WarBonus(own.damage+TECH_STEP*it,own.health)}
+   val health=needed(j,healthRoom) {WarBonus(own.damage,own.health+TECH_STEP*it)}
+   val both=needed(j,minOf(damageRoom,healthRoom)) {WarBonus(own.damage+TECH_STEP*it,own.health+TECH_STEP*it)}
+   rows.put(JSONObject().put("name",enemies[j].name).put("best",best[j]).put("damage",damage?:JSONObject.NULL).put("health",health?:JSONObject.NULL).put("both",both?:JSONObject.NULL))
+  }
+  return JSONObject().put("damage_level",damageLevel).put("health_level",healthLevel).put("max_level",TECH_MAX).put("step_percent",TECH_STEP)
+   .put("beaten",beaten).put("reset_needed",minOf(RESET_DEFEATS,b.size)).put("enemies",rows)
  }
  /** Round-robin inside one clan without war bonuses; each unordered pair once (ally < enemy). */
  fun ranking(members:List<WarMember>,profiles:(WarMember)->JSONObject?,cancelled:()->Boolean,trials:Int=RANKING_TRIALS,progress:(Int,Int)->Unit):JSONObject {
@@ -54,5 +96,10 @@ internal class FullWarComputation(private val store:FullWarStore) {
   }
   return JSONObject().put("model",FullWarStore.MODEL).put("experimental",true).put("matrix",matrix).put("complete",p.count {it!=null})
  }
- companion object {const val RANKING_TRIALS=512}
+ companion object {
+  const val RANKING_TRIALS=512
+  // Clan War Damage/Health: +100% per level, max 100 levels; reset after 45 defeated rivals (GuildWarConfig).
+  const val TECH_STEP=100.0;const val TECH_MAX=100;const val RESET_DEFEATS=45
+  const val HINT_TRIALS=256;const val HINT_ENEMIES=10
+ }
 }

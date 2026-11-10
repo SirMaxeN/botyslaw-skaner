@@ -59,7 +59,7 @@ class HomeActivity : Activity() {
         }
         fun button(value: String, primary: Boolean = false, quiet: Boolean = false, top: Int = 10, action: () -> Unit) {
             val control=S.button(this, value, primary, quiet, action)
-            val art=when(value){"Skaner zasobów"->R.drawable.menu_resources;"Walki"->R.drawable.menu_battles;else->0}
+            val art=when(value){"Skaner zasobów"->R.drawable.menu_resources;"Walki"->R.drawable.menu_battles;"Badania klanu"->R.drawable.menu_research;else->0}
             if(art!=0) {
                 val icon=getDrawable(art)!!.apply {setBounds(0,0,dp(48),dp(48))}
                 control.setCompoundDrawablesRelative(icon,null,null,null)
@@ -115,6 +115,7 @@ class HomeActivity : Activity() {
                 app.battleMode = false; startActivity(Intent(this, MainActivity::class.java))
             }
             button("Walki", primary = true) { startActivity(Intent(this, eu.komars.forgescanner.battle.BattleActivity::class.java)) }
+            button("Badania klanu", primary = true) { startActivity(Intent(this, eu.komars.forgescanner.battle.BattleActivity::class.java).putExtra(eu.komars.forgescanner.battle.BattleActivity.EXTRA_RESEARCH, true)) }
         }
         button("Opcje", quiet = true, top = 14) { startActivity(Intent(this, MainActivity::class.java).putExtra("options", true)) }
         eu.komars.forgescanner.ui.SupportFooter.add(this,body)

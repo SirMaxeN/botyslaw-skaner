@@ -10,6 +10,7 @@ object NavigationScreenPolicy {
         AutoScanStep.OPEN_RESEARCH -> screen in setOf(GameScreenKind.SKILLS, GameScreenKind.PETS, GameScreenKind.TECHNOLOGY)
         AutoScanStep.OPEN_SKILLS -> screen == GameScreenKind.SKILLS
         AutoScanStep.OPEN_PETS -> screen == GameScreenKind.PETS
+        AutoScanStep.OPEN_TECH -> screen == GameScreenKind.TECHNOLOGY
         else -> false
     }
 }

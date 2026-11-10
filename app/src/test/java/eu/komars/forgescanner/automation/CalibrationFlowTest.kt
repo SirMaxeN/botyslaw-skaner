@@ -41,17 +41,17 @@ class CalibrationFlowTest {
         flow.beginAll()
         assertFalse(flow.isRepair)
         assertEquals(AutoScanStep.HAMMERS, flow.current)
-        assertEquals(AutoScanStep.OPEN_MOUNTS, flow.advance())
+        assertEquals(AutoScanStep.COINS, flow.advance()) // next unapproved step: optional coins counter on the home screen
     }
 
     @Test fun staleSaveCallbackCannotSkipAnotherField() {
         val flow = CalibrationFlow()
         flow.beginAll()
         flow.advance(AutoScanStep.HAMMERS)
-        assertEquals(AutoScanStep.OPEN_MOUNTS, flow.advance(AutoScanStep.HAMMERS))
-        assertEquals(AutoScanStep.OPEN_MOUNTS, flow.current)
+        assertEquals(AutoScanStep.COINS, flow.advance(AutoScanStep.HAMMERS))
+        assertEquals(AutoScanStep.COINS, flow.current)
         flow.beginRepair(AutoScanStep.PET_LIST)
-        assertEquals(AutoScanStep.PET_LIST, flow.advance(AutoScanStep.OPEN_MOUNTS))
+        assertEquals(AutoScanStep.PET_LIST, flow.advance(AutoScanStep.COINS))
         assertFalse(flow.isComplete)
     }
 

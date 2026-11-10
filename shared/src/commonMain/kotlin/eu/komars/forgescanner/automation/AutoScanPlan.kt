@@ -5,6 +5,8 @@ import eu.komars.forgescanner.model.ScanTarget
 /** Fixed, user-configured route. It contains no purchase, merge or summon action. */
 enum class AutoScanStep(val title: String, val instruction: String, val target: ScanTarget? = null) {
     HAMMERS("Młotki", "Zaznacz cały dolny licznik kowadła z ikoną młotka i zapasem szerokości na większą liczbę.", ScanTarget.HAMMERS),
+    COINS("Monety", "Opcjonalnie: zaznacz licznik monet na górnym pasku (z ikoną korony i zapasem na „m”).", ScanTarget.COINS),
+    GEMS("Diamenty", "Opcjonalnie: zaznacz różowy licznik diamentów na górnym pasku.", ScanTarget.GEMS),
     OPEN_MOUNTS("Otwórz wierzchowce", "Zaznacz przycisk otwierający ekran wierzchowców."),
     MOUNT_KEYS("Klucze wierzchowców", "Zaznacz cały pasek kluczy z ikoną i zapasem miejsca na cyfry.", ScanTarget.MOUNT_KEYS),
     MOUNT_COST("Koszt wierzchowca", "Zaznacz koszt przyzwania jednego wierzchowca. Nie naciskaj przyzywania.", ScanTarget.MOUNT_COST),
@@ -15,10 +17,16 @@ enum class AutoScanStep(val title: String, val instruction: String, val target: 
     SKILL_TICKETS("Bilety umiejętności", "Zaznacz cały pasek biletów z ikoną i zapasem miejsca na cyfry.", ScanTarget.TICKETS),
     SKILL_COST("Koszt umiejętności ×5", "Zaznacz koszt pakietu pięciu przyzwań. Nie naciskaj przyzywania.", ScanTarget.SKILL_COST),
     OPEN_PETS("Otwórz zwierzaki", "Zaznacz zakładkę zwierzaków lub jajek."),
+    SHELLS("Skorupki", "Opcjonalnie: zaznacz licznik skorupek w lewym górnym rogu.", ScanTarget.SHELLS),
     PET_LIST("Lista zwierzaków i jajek", "Ustaw listę na górze i zaznacz obszar samych ikon, bez paska wyposażenia.", ScanTarget.PETS),
+    OPEN_TECH("Otwórz drzewo technologii", "Opcjonalnie: zaznacz zakładkę Drzewo technologii (dla fiolek)."),
+    RED_VIALS("Czerwone fiolki", "Opcjonalnie: zaznacz licznik czerwonych fiolek.", ScanTarget.RED_VIALS),
+    GREEN_VIALS("Zielone fiolki", "Opcjonalnie: zaznacz licznik zielonych fiolek.", ScanTarget.GREEN_VIALS),
     CLOSE_RESEARCH("Wróć do młotków", "Zaznacz przycisk zamknięcia ekranu umiejętności/jajek/badań, aby wrócić do ekranu młotków.");
 
     val isNavigation: Boolean get() = target == null
+    /** Extras (coins, gems, shells, vials) and the tech tab: skipped when not configured; never block a scan. */
+    val optional: Boolean get() = target?.optional == true || this == OPEN_TECH
     val isInventory: Boolean get() = target?.isInventory == true
     val timeoutMillis: Long get() = if (isInventory) 120_000L else if (isNavigation) 15_000L else 40_000L
 }

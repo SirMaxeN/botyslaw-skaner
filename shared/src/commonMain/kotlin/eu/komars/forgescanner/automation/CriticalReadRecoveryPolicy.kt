@@ -7,7 +7,9 @@ import eu.komars.forgescanner.model.ScanTarget
  */
 object CriticalReadRecoveryPolicy {
     fun expectedNavigation(target: ScanTarget): AutoScanStep? = when (target) {
-        ScanTarget.HAMMERS -> AutoScanStep.CLOSE_RESEARCH
+        ScanTarget.HAMMERS, ScanTarget.COINS, ScanTarget.GEMS -> AutoScanStep.CLOSE_RESEARCH
+        ScanTarget.SHELLS -> AutoScanStep.OPEN_PETS
+        ScanTarget.RED_VIALS, ScanTarget.GREEN_VIALS -> AutoScanStep.OPEN_TECH
         ScanTarget.MOUNT_KEYS, ScanTarget.MOUNT_COST -> AutoScanStep.OPEN_MOUNTS
         ScanTarget.TICKETS, ScanTarget.SKILL_COST -> AutoScanStep.OPEN_SKILLS
         // A list may already be partly counted or scrolled; do not restart it implicitly.

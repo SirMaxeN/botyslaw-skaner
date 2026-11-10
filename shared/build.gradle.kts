@@ -6,6 +6,8 @@ plugins { id("org.jetbrains.kotlin.multiplatform") }
 
 kotlin {
     jvm { compilerOptions { jvmTarget.set(JvmTarget.JVM_17) } }
+    // Local-only generator switch for ClanTechPresets (see ClanTechPresetsTest).
+    tasks.withType<Test>().configureEach { System.getProperty("clanTechPresets")?.let { systemProperty("clanTechPresets", it) } }
 
     // iOS targets build only on macOS; on Windows they are skipped (see gradle.properties).
     val xcframework = XCFramework("BotyslawShared")

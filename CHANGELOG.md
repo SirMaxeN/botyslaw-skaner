@@ -1,5 +1,29 @@
 # Change log
 
+## 1.5.1 (48) — AUTO Test (clan race, clan research, extra resources)
+
+Fifth test build (2026-11-09):
+- **Section headers decide where icons may match.** One OCR pass per page finds the centred section headers in the tree area ("Wojna klanów", "Klanowe mikstury techniczne", "Moc", …; tabs, the top bar and the "Bonusy Wzniesienia" bubble are ignored). A node belongs to the nearest header above it (or the section carried from the previous page); the 16 war icons match only inside "Wojna klanów" and the 2 potion icons only inside "Klanowe mikstury techniczne", so a look-alike icon in another section is never tapped.
+
+Fourth test build (2026-11-09):
+- **Badania klanu: no manual icon picking any more.** "Konfiguracja" works like the war-list setup: the route buttons are proposed and confirmed, the 18 tracked research icons are found automatically (no taps on other nodes), the shared research info window is proposed once for confirmation, and the result says "Znaleziono X/18" with the missing names. The thumbnail grid (too tall, its save button was off-screen) is removed. A tracked icon already read is re-read only for a clearly better match (checked on a real phone frame: the 13 "Moc" nodes are detected and none is mistaken for a tracked icon).
+
+Third test build (icons from the player, 2026-11-09):
+- **Default research set:** the 16 war-point nodes of "Wojna klanów" and the 2 green-potion nodes of "Klanowe mikstury techniczne" are tracked out of the box (`ClanTechPresets`: icon fingerprints generated from the player's screenshots by `ClanTechPresetsTest`; the screenshots stay in ignored `.local/`). The scan taps only these; "Konfiguracja" replaces the set. Verified at 1.0/0.8/0.64 scale and with blue↔green discs swapped (maxed nodes); damage/health and reward nodes are never tapped.
+- Maxed nodes ("Maks." instead of "x/y") are read and sent as `maxed`; the bot shows them as "Maks.".
+- "Bot skanuje" sits at the very top-left (also over the cut-out strip) and jumps to the right corner while a field under it is read; coin proposals ignore the player's power (yellow swords on the left).
+
+Second test build (feedback 2026-11-09):
+- **Badania klanu = configuration first, then scan.** Configuration scrolls the clan research tree without tapping nodes, collects every icon and shows a grid of thumbnails to tick the research to track. Scans then tap only the tracked icons, matched by an icon fingerprint that ignores the disc colour (blue in progress / green maxed); Day 1–6 icons are told apart by a global most-certain-first assignment (tested on the user's screenshot at 0.85× scale). New menu icon `menu_research`.
+- **Setup proposes the new counters automatically:** gems (pink), coins (crown, home), shells (left pill on pets), red/green vials (left pills on the tech tree) — `TopCounters`, tested on the user's screenshots.
+- **"Bot skanuje" indicator** moved to the top centre (it covered the gems/coins counters in the top-right corner).
+- **Accessibility prompt** no longer appears when the service is enabled but still binding after an update/app start: the app waits up to 3 s; if Android did not start it, it says so instead of asking to enable it again.
+- **Manual counter choice teaches immediately:** the chosen number trains the game-font digits of that crop and is shared through `/mobile/learning` right away; the same set of OCR readings is resolved from the remembered choice next time.
+
+- **Extra resources in the automatic scan (optional, never scored):** coins and gems on the home screen, shells on the pets tab, red and green vials on the tech tree tab (new route step "Otwórz drzewo technologii"). Configure them once via "Konfiguracja"/"Ustaw od początku" (new fields on the home, pets and tabs screens plus a new "Drzewo technologii" screen). Not configured → skipped; the scan works as before. Sent to the bot as `coins`, `gems`, `shells`, `red_vials`, `green_vials`; empty in the review = skipped.
+- **New main menu "Badania klanu":** opens the clan research tree by the war-list route, taps every node (blue/green disc with "x/10"), reads its name, level and current bonus from the info window, scrolls to the end and sends everything to `/mobile/clan-tech` (`/report clan-tech`, donation race bonus). First run asks for the same buttons as the war list; frames go to `files/logs/clan-tech/`.
+- **War list tech hint:** rivals nobody beats (best chance < 50%) get, at the top of the list, how many Clan War Damage / Health / both levels (+100% per level, max 100) our best three attackers would need, with the cost (492 green potions or 246 gems per level, forgemaster.pro game 2.11) and how many defeats are missing for the 45-defeat reset.
+
 ## 1.5.0 (47) — Google Play
 
 Fixes from the 2026-11-08 Sunday scan (logs: 3 auto-retries for one rival, "Zapis został zablokowany" for management):

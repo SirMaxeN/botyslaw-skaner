@@ -30,6 +30,30 @@ object GestureConnection {
 
     fun settingsIntent() = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
+    /** Enabled in Android settings (it may still be binding right after an update or app start). */
+    fun enabledInSettings(context: android.content.Context): Boolean {
+        val enabled = Settings.Secure.getString(context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: return false
+        val own = android.content.ComponentName(context, GestureAccessService::class.java)
+        return enabled.split(':').any { android.content.ComponentName.unflattenFromString(it) == own }
+    }
+
+    /**
+     * Runs [connected] as soon as the service binds (up to [timeoutMillis]) when it is enabled in settings;
+     * otherwise [missing] runs at once. Avoids asking the player to enable an already enabled service.
+     */
+    fun awaitConnection(context: android.content.Context, timeoutMillis: Long = 3000L, connected: () -> Unit, missing: () -> Unit) {
+        if (isConnected) { connected(); return }
+        if (!enabledInSettings(context)) { missing(); return }
+        val handler = android.os.Handler(android.os.Looper.getMainLooper())
+        val started = android.os.SystemClock.elapsedRealtime()
+        fun poll() {
+            if (isConnected) connected()
+            else if (android.os.SystemClock.elapsedRealtime() - started >= timeoutMillis) missing()
+            else handler.postDelayed(::poll, 200)
+        }
+        poll()
+    }
+
     fun addStateListener(listener: GestureStateListener) = onMain {
         listeners += listener; listener(isConnected, foregroundGame, detail)
     }

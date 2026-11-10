@@ -44,14 +44,26 @@ class AutoScanRunnerTest {
         assertEquals(1, complete.size)
     }
 
+    @Test fun optionalExtrasMayBeSkippedButRequiredCountersMayNot() {
+        val port = Port(); val complete = mutableListOf<Map<ScanTarget, AutoReading>>()
+        val runner = AutoScanRunner(port, Clock(), {}, complete::add)
+        runner.start()
+        while (runner.state.status == AutoScanRunner.Status.RUNNING) port.finish(port.calls.last().target?.takeIf { !it.optional }?.let { AutoReading(7) })
+        assertEquals(AutoScanRunner.Status.COMPLETE, runner.state.status)
+        assertEquals(ScanTarget.entries.filter { !it.optional }.toSet(), complete.single().keys)
+        runner.start()
+        port.finish(null) // HAMMERS is required: no reading is a failure.
+        assertEquals(AutoScanRunner.Status.FAILED, runner.state.status)
+    }
+
     @Test fun ambiguousCounterFailsWithoutContinuingOrPublishingPartialValues() {
         val port = Port(); var complete = false
         val runner = AutoScanRunner(port, Clock(), {}, { complete = true })
-        runner.start(); port.finish(); port.finish()
-        assertEquals(AutoScanStep.MOUNT_KEYS, port.calls.last())
+        runner.start()
+        while (port.calls.last() != AutoScanStep.MOUNT_KEYS) port.finish()
         port.callbacks.last()(Result.failure(IllegalStateException("Dwie różne liczby")))
         assertEquals(AutoScanRunner.Status.FAILED, runner.state.status)
-        assertEquals(3, port.calls.size)
+        assertEquals(AutoScanStep.entries.indexOf(AutoScanStep.MOUNT_KEYS) + 1, port.calls.size)
         assertFalse(complete)
     }
 
@@ -80,11 +92,12 @@ class AutoScanRunnerTest {
 
     @Test fun malformedCostAndUnexpectedNavigationResultStopBeforeAnyFurtherTap() {
         val port = Port(); val runner = AutoScanRunner(port, Clock(), {}, {})
-        runner.start(); port.finish()
+        runner.start()
+        while (port.calls.last() != AutoScanStep.OPEN_MOUNTS) port.finish()
         port.finish(AutoReading(1)) // Navigation cannot supply a resource result.
         assertEquals(AutoScanRunner.Status.FAILED, runner.state.status)
-        runner.start(); port.finish(); port.finish(); port.finish()
-        assertEquals(AutoScanStep.MOUNT_COST, port.calls.last())
+        runner.start()
+        while (port.calls.last() != AutoScanStep.MOUNT_COST) port.finish()
         port.finish(AutoReading(0))
         assertEquals(AutoScanRunner.Status.FAILED, runner.state.status)
     }

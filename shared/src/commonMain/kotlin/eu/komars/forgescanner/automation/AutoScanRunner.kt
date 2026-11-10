@@ -48,7 +48,7 @@ class AutoScanRunner(
         if (!active || generation != token) return
         val step = AutoScanStep.entries.getOrNull(index)
         if (step == null) {
-            if (pending.keys != ScanTarget.entries.toSet()) { fail("Brakuje części wyników. Powtórz skanowanie."); return }
+            if (!pending.keys.containsAll(ScanTarget.entries.filter { !it.optional })) { fail("Brakuje części wyników. Powtórz skanowanie."); return }
             val complete = pending.toMap()
             active = false; cancelTimer?.invoke(); cancelTimer = null
             cancelDeadline?.invoke(); cancelDeadline = null
@@ -77,7 +77,8 @@ class AutoScanRunner(
                 if (problem != null) { fail(problem.message ?: "Odczyt przerwany. Sprawdź bieżący krok."); return@perform }
                 val reading = result.getOrNull()
                 val target = step.target
-                if (target == null && reading != null || target != null && reading == null) {
+                // Optional extras may be skipped (not configured or not readable): no reading, no failure.
+                if (target == null && reading != null || target != null && reading == null && !target.optional) {
                     fail("Wynik nie pasuje do kroku: ${step.title}."); return@perform
                 }
                 if (target != null && reading != null) {

@@ -6,6 +6,9 @@ object ResearchScrollGesture {
  const val ROUTE_VERSION=1
  fun replaySteps(version:Int,savedWidth:Int,savedHeight:Int,steps:Int,width:Int,height:Int):Int? =
   steps.takeIf {version==ROUTE_VERSION && savedWidth==width && savedHeight==height && width>0 && height>0 && it in 0..12}
+ /** A checkpoint is an absolute count of strokes from the top, including zero. */
+ fun nextCheckpoint(pages:Iterable<Int>,current:Int,includeCurrent:Boolean):Int? =
+  pages.filter {it>current||(includeCurrent&&it==current)}.minOrNull()
  data class Stroke(val x:Float,val fromY:Float,val toY:Float,val durationMs:Long)
  fun create(width:Int,height:Int,toTop:Boolean):Stroke {
   require(width>0 && height>0)
