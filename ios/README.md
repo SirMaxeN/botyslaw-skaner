@@ -12,6 +12,9 @@ Do tego uruchomienia nie są potrzebne katalogi `.signing`, `.local`, `.gradle`,
 
 ## 2. Zbuduj projekt na Macu
 
+Framework obejmuje urządzenia iOS (ARM64) oraz symulatory na Macach Apple Silicon
+(ARM64) i Intel (x86_64).
+
 1. Zainstaluj Xcode obsługujący wersję iPadOS na tablecie. Otwórz go raz, żeby zakończyć instalację komponentów. Potrzebne są też JDK 17 i XcodeGen. Jeśli używasz Homebrew, zainstalujesz XcodeGen przez `brew install xcodegen`.
 2. W Terminalu, w katalogu `botyslaw-skaner`, uruchom:
 
