@@ -20,6 +20,12 @@ release.properties
 .idea/
 .vscode/
 *.iml
+# Generated from ios/project.yml by XcodeGen
+ios/*.xcodeproj/
+ios/BotyslawSkaner/Info.plist
+ios/BotyslawSkaner/BotyslawSkaner.entitlements
+ios/BroadcastExtension/Info.plist
+ios/BroadcastExtension/BroadcastExtension.entitlements
 captures/
 releases/
 *.apk

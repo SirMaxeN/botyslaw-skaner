@@ -11,7 +11,7 @@ kotlin {
 
     // iOS targets build only on macOS; on Windows they are skipped (see gradle.properties).
     val xcframework = XCFramework("BotyslawShared")
-    listOf(iosArm64(), iosSimulatorArm64()).forEach { target ->
+    listOf(iosArm64(), iosSimulatorArm64(), iosX64()).forEach { target ->
         target.binaries.framework {
             baseName = "BotyslawShared"
             isStatic = true
