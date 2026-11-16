@@ -22,7 +22,7 @@ class UpdateActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (eu.komars.forgescanner.BuildConfig.BUILD_TYPE == "autoTest" && !manual) {
-            startActivity(Intent(this, eu.komars.forgescanner.HomeActivity::class.java))
+            startActivity(Intent(this, eu.komars.forgescanner.HomeActivity::class.java).putExtra(eu.komars.forgescanner.HomeActivity.EXTRA_INTRO, true))
             finish(); return
         }
         if (eu.komars.forgescanner.BuildConfig.PLAY_DISTRIBUTION) {
@@ -159,7 +159,7 @@ class UpdateActivity : Activity() {
     private fun openScanner() {
         if (isFinishing || isDestroyed) return
         playChecker?.cancel()
-        if (!manual) startActivity(Intent(this, eu.komars.forgescanner.HomeActivity::class.java))
+        if (!manual) startActivity(Intent(this, eu.komars.forgescanner.HomeActivity::class.java).putExtra(eu.komars.forgescanner.HomeActivity.EXTRA_INTRO, true))
         finish()
     }
 }

@@ -20,12 +20,25 @@ import eu.komars.forgescanner.ui.ScannerAppearance as S
 
 /** Original scanner appearance, with setup completed before choosing a scanner. */
 class HomeActivity : Activity() {
+    companion object { const val EXTRA_INTRO = "intro" }
     private val app get() = application as ScannerApplication
     private var pairing = false
     private val handler = Handler(Looper.getMainLooper())
     private val refresh = Runnable { if (!isFinishing && !isDestroyed) home() }
 
-    override fun onCreate(state: Bundle?) { super.onCreate(state); home() }
+    override fun onCreate(state: Bundle?) {
+        super.onCreate(state); home()
+        // Thank-you intro once per app start (not after rotation or when returning from another screen).
+        if (state == null && intent.getBooleanExtra(EXTRA_INTRO, false)) {
+            val supporters = eu.komars.forgescanner.sync.SupportersClient(this) { app.demo }
+            eu.komars.forgescanner.ui.SupportersIntro.show(this, supporters.cached())
+            supporters.refresh()
+        }
+    }
+    @Deprecated("Activity back handling")
+    override fun onBackPressed() {
+        if (!eu.komars.forgescanner.ui.SupportersIntro.dismissIfShowing(this)) @Suppress("DEPRECATION") super.onBackPressed()
+    }
     override fun onResume() { super.onResume(); home(); handler.postDelayed(refresh, 400) }
     override fun onPause() { handler.removeCallbacks(refresh); super.onPause() }
     override fun onDestroy() {

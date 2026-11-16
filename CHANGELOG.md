@@ -2,6 +2,11 @@
 
 
 
+## 1.6.7 (64) — AUTO Test (2026-11-16, thank-you intro)
+
+- **Supporters intro at app start:** "Dziękuję za wsparcie ❤" with the supporters' names as colored chips (one column for a handful, up to four as the list grows), a slow automatic scroll through the whole list (110 dp/s, at most 9 s), then a fade to the home screen. A tap anywhere or Back skips it; shown once per start, not after rotation or returning to the home screen. With system animations off it is a still screen that closes after 3 s.
+- The list comes from the bot (`GET /mobile/supporters`, public, from `config/supporters.json`; update it with `npm run supporters` in the bot repo). The app shows the last downloaded copy at once (built-in list on the first start) and refreshes it in the background for the next start; DEMO mode does not connect.
+
 ## 1.6.6 (63) — Google Play (2026-11-16, egg count from forge2.mp4, mounts stuck at the list end)
 
 - **Recording (Play 1.6.0, automatic scan):** the app showed 359 pets/eggs (356 without the 3 base ones), the friend counted 315. Tracking the list frame by frame in the 57 fps video gives 59.7 rows of travel, i.e. 64 rows = 319 items (316 without the base ones). The app was ~8 rows too high.
