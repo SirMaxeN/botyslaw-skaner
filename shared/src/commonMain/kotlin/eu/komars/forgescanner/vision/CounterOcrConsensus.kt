@@ -92,7 +92,9 @@ object CounterOcrConsensus {
                  // More data: a clear majority of reading frames (at least 3 and 60 %), rare slips allowed.
                  else topFrames >= maxOf(3, (readingFrames.size * 3 + 4) / 5)) &&
                 readingFrames.count { index -> !frames[index].requiresConfirmation && choices[index].any { it.value == top.value } } >= 2 &&
-                candidates.filterNot { supports(it, top) }.all { (framesWith[it.value] ?: 0) <= (if (extended) maxOf(1, topFrames / 3) else 1) } &&
+                // With more data, a value read in every frame beats an OCR slip (3 read as 8) seen in up to 2/3 of them.
+                candidates.filterNot { supports(it, top) }.all { (framesWith[it.value] ?: 0) <= (if (!extended) 1
+                    else if (topFrames == readingFrames.size) topFrames * 2 / 3 else maxOf(1, topFrames / 3)) } &&
                 (font == null || font == top.value) && (unanimousFont == null || unanimousFont == top.value) &&
                 !conflictsWith(top.value)
         }

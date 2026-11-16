@@ -106,7 +106,7 @@ class ControlledScrollPlanner(
         // fractional-row phase for the blocked-bottom check.
         if (abs(normalRows - round(normalRows)) < .15) normalRows = round(normalRows) - .17
         val rows = if (blockedGestures > 0) min(1.15, normalRows) else normalRows
-        val minimumDuration = if (blockedGestures > 0) 250L else 600L
+        val minimumDuration = if (blockedGestures > 0) 250L else 400L
         val duration = maxOf(minimumDuration, ceil(rows * interval / (ROWS_PER_FRAME * 1_000_000.0)).toLong())
         if (duration > MAXIMUM_PASS_MILLIS) return Decision(Kind.FAILED,
             message = "Przechwytywanie nie nadąża za przewijaniem. Wróć na górę i ponów odczyt.")
@@ -114,10 +114,11 @@ class ControlledScrollPlanner(
     }
 
     companion object {
-        private const val ROWS_PER_FRAME = .28
+        /** Finger odometer (1.6.2+) keeps whole rows on identical eggs; the image needs < half a row per frame. */
+        private const val ROWS_PER_FRAME = .45
         private const val DEFAULT_INTERVAL_NANOS = 33_333_334L
         private const val LONG_MOTION_INTERVAL_NANOS = 100_000_000L
-        private const val MAXIMUM_PASS_MILLIS = 4000L
+        private const val MAXIMUM_PASS_MILLIS = 2500L
     }
 }
 

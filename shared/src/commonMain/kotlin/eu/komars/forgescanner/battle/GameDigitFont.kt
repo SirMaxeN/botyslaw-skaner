@@ -127,6 +127,17 @@ object GameDigitFont {
  fun readCounterShape(w:Int,h:Int,p:IntArray,samples:List<Sample>):Long? =
   counterValue(redCounterGlyphs(w,h,p),samples,strict=true)
    ?:counterValue(segment(w,h,p,prefixed=false),samples,strict=true)
+   ?:counterValue(segment(w,h,p,prefixed=false)?.let {withoutLeadingIcon(it,samples)},samples,strict=true)
+
+ /**
+  * The resource icon touching the number (the hammer before "9307") is cut as the first glyph. Drop it only when
+  * it resembles no digit at all (best error above .40); a poorly matching digit is never dropped.
+  */
+ private fun withoutLeadingIcon(glyphs:List<Glyph>,samples:List<Sample>):List<Glyph>? {
+  if(glyphs.size<2||samples.isEmpty())return null
+  val best=samples.minOf {error(glyphs.first(),it.glyph)}
+  return if(best>.40)glyphs.drop(1) else null
+ }
 
  fun learnCounter(w:Int,h:Int,p:IntArray,value:Long):List<Sample> {
   if(value<0)return emptyList()

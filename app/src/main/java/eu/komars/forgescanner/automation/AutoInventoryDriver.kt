@@ -60,10 +60,16 @@ class AutoInventoryDriver {
     private var releaseError: Throwable? = null
     private var initialStartedAt = 0L
     private var initialShortList = ShortViewportInventoryDetector()
+    /** Finger odometer: travel of completed strokes (screen px), presses, and whether the list end was seen. */
+    private var fingerTravel = 0.0
+    private var fingerPresses = 0
+    private var listEndSeen = false
+    private var diagnostic: (eu.komars.forgescanner.model.ScrollAnalysis) -> Unit = {}
 
     /** Uses the same recorder as manual mode; gestures only expose later list rows. */
     fun start(first: Bitmap, target: ScanTarget, calibration: SavedCalibration, session: GestureSession,
               isActive: () -> Boolean, onProgress: (String, Long) -> Unit,
+              onDiagnostic: (eu.komars.forgescanner.model.ScrollAnalysis) -> Unit = {},
               onComplete: (Result<AutoReading>) -> Unit) {
         if (gestureInFlight || gestureHeld || repositioning || releaseInFlight) {
             first.recycle(); onComplete(Result.failure(IllegalStateException("Poczekaj na zwolnienie poprzedniego gestu."))); return
@@ -97,10 +103,12 @@ class AutoInventoryDriver {
         releaseError = null
         initialStartedAt = SystemClock.uptimeMillis(); initialShortList = ShortViewportInventoryDetector()
         completedPasses = 0; currentCount = 0; passStrokes.clear()
+        fingerTravel = 0.0; fingerPresses = 0; listEndSeen = false; diagnostic = onDiagnostic
         fingerX = calibration.region.exactCenterX()
         fingerY = bottomFinger(calibration)
         recorder = InventoryRecording(calibration, width, height,
             progress = {},
+            diagnostic = { analysis -> handler.post { if (generation == token) diagnostic(analysis) } },
             analyzing = {
                 if (active && generation == token) {
                     waitingForEnd = true
@@ -234,6 +242,8 @@ class AutoInventoryDriver {
             // This value paces gestures and detects a blocked bottom only. It is
             // never converted to rows or added to the inventory count.
             val movement = changed?.let { if (it) config.rowHeightPx * .45 else 0.0 }
+            // The finger has been still for REST_SETTLE_MS: this frame shows where the stroke left the list.
+            recorder?.fingerMark(frame.timestampNanos, fingerTravel, fingerPresses, blocked = changed == false || listEndSeen)
             act(planner!!.next(frame.timestampNanos, movement,
                 completedGestureId = completedPasses), token)
         }
@@ -308,6 +318,7 @@ class AutoInventoryDriver {
         previousStrokeSourceTimestamp = maxOf(strokeCapture.latestTimestampNanos, previous?.timestampNanos ?: 0L)
         dispatchedStrokes++
         planner?.beginMotion()
+        if (!gestureHeld) fingerPresses++
         emit("Płynnie przewijam i liczę listę.")
         if (eu.komars.forgescanner.BuildConfig.DEBUG) android.util.Log.d("ScannerScroll",
             "strokePx=${stroke.distancePx.toInt()} rows=${stroke.distancePx / config.rowHeightPx} ms=${stroke.durationMillis} remaining=${passStrokes.size}")
@@ -315,18 +326,20 @@ class AutoInventoryDriver {
             durationMs = stroke.durationMillis, hold = true) { result ->
             planner?.endMotion()
             gestureInFlight = false
-            if (result.isSuccess) { gestureHeld = true; fingerY = nextY }
+            if (result.isSuccess) { gestureHeld = true; fingerY = nextY; fingerTravel += stroke.distancePx }
             else { gestureHeld = false; releaseError = result.exceptionOrNull() }
             if (releaseCallbacks.isNotEmpty()) { stopFinger { }; return@drag }
             if (!running(token)) { stopFinger { }; return@drag }
             if (result.isFailure) { fail(result.exceptionOrNull()?.message ?: "Gest został zatrzymany.", token); return@drag }
-            if (passStrokes.isEmpty()) { completedPasses++; scheduleProbe(token) }
+            if (passStrokes.isEmpty()) { completedPasses++; scheduleProbe(token, REST_SETTLE_MS) }
             else dispatchNextStroke(token)
         }
     }
 
     private fun observeEnd(status: InventoryEndDetector.Status, token: Long) {
         if (!active || generation != token || waitingForEnd) return
+        // Stretches that reached the footer push against the end (elastic list): not finger evidence.
+        listEndSeen = status != InventoryEndDetector.Status.NOT_VISIBLE
         when (status) {
             InventoryEndDetector.Status.CHECKING -> {
                 if (endProbePaused || SystemClock.uptimeMillis() < endProbeCooldownUntil) return
@@ -456,6 +469,8 @@ class AutoInventoryDriver {
 
     companion object {
         private const val SAMPLE_WIDTH = 96
+        /** Finger held still before the check, so the probe frame shows the list at rest (finger odometer). */
+        private const val REST_SETTLE_MS = 150L
         private const val END_HINT = "Sprawdź dół listy. Jeśli to koniec, wybierz Zakończ listę."
 
         /** Compatibility entry point. A screenshot cannot prove that a blind reverse swipe reached the top. */

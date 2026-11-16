@@ -3,6 +3,12 @@ package eu.komars.forgescanner.model
 import kotlin.math.abs
 import kotlin.math.max
 
+/**
+ * Finger odometer at a moment the automatic scroll holds the list still: cumulative finger travel in sampled
+ * pixels, finger presses so far, and whether that stretch pushed against the end of the list.
+ */
+data class FingerMark(val timestampNanos: Long, val fingerPx: Double, val presses: Int, val blocked: Boolean)
+
 /** One authoritative stream for progress and final results, with six-frame lookahead. */
 class ScrollAnalysisSession(private val columns: Int, private val rowHeight: Int,
     private val allowEstimation: Boolean = false,
@@ -27,9 +33,65 @@ class ScrollAnalysisSession(private val columns: Int, private val rowHeight: Int
     private var largestGap = 0L
     private var halted = false
     private var finished = false
+    private val marks = ArrayDeque<FingerMark>()
+    private class MarkSample(val mark: FingerMark, val offset: Double, val ambiguous: Boolean, val phase: Double?)
+    /** The still frame of the latest rest: the final count is read from it, at its corrected position. */
+    private var restFrame: GrayScrollFrame? = null
+    private val markSamples = mutableListOf<MarkSample>()
+    private var ambiguousSinceMark = false
+    private var lastProcessedTimestamp = 0L
+    private var lastMarkFrame: GrayScrollFrame? = null
+    private var droppedMarks = 0
+
+    /** Called by the automatic scroll at each rest moment; a mark older than processed frames is dropped. */
+    fun fingerMark(mark: FingerMark) {
+        if (finished || mark.timestampNanos <= lastProcessedTimestamp) return
+        marks.addLast(mark)
+    }
+
+    /**
+     * A mark is measured on the first frame after it that is identical to the frame before (the list truly
+     * stopped). Without such a frame within 500 ms the mark is dropped and its stretch joins the next one.
+     */
+    private fun recordMarks(frame: GrayScrollFrame) {
+        lastProcessedTimestamp = maxOf(lastProcessedTimestamp, frame.timestampNanos)
+        val previous = lastMarkFrame
+        lastMarkFrame = frame
+        while (marks.isNotEmpty() && marks.first().timestampNanos <= frame.timestampNanos) {
+            val still = previous != null && matcher.repeatedCapture(previous, frame)
+            if (still) {
+                markSamples += MarkSample(marks.removeFirst(), offset, ambiguousSinceMark, FingerOdometer.gridPhase(frame, rowHeight))
+                restFrame = frame
+                ambiguousSinceMark = false
+            } else if (frame.timestampNanos - marks.first().timestampNanos > 500_000_000L) {
+                marks.removeFirst(); droppedMarks++
+            } else break
+        }
+    }
     var guidance: ScrollGuidance = ScrollGuidance.SCROLL
         private set
-    val count: Long get() = rows.count + if (allowEstimation) rows.missingRowsBeforeLastOccupied().toLong() * columns else 0L
+    /** Live count shown while scrolling: the same image + finger/still-frame correction as the final result. */
+    val count: Long get() = fusion()?.let(::endCount) ?: max(0L, rows.count +
+        (if (allowEstimation) rows.missingRowsBeforeLastOccupied().toLong() * columns else 0L))
+
+    /**
+     * With finger marks the count comes from the latest rest, not from every row the image ever claimed: rows
+     * above that still frame (image offset + finger/still-frame correction) are full, the frame itself gives the
+     * partial last row. An image that ran ahead and slipped back can no longer add those rows twice.
+     */
+    private fun endCount(fusion: FingerOdometer.Fusion): Long? {
+        val frame = restFrame ?: return null
+        val corrected = markSamples.last().offset + (fusion.phaseErrorPx ?: (fusion.correction.toDouble() * rowHeight))
+        if (corrected < 0) return null
+        val end = InventoryRowAccumulator(columns, rowHeight)
+        end.observe(frame, corrected)
+        return end.count + end.missingRowsBeforeLastOccupied().toLong() * columns
+    }
+
+    private fun fusion(): FingerOdometer.Fusion? = if (markSamples.size >= 2) FingerOdometer.fuse(markSamples.zipWithNext { a, b ->
+        FingerOdometer.Interval(b.mark.fingerPx - a.mark.fingerPx, b.mark.presses - a.mark.presses, b.offset - a.offset,
+            b.ambiguous, b.mark.blocked, a.phase, b.phase)
+    }, rowHeight.toDouble()) else null
 
     init { require(columns in 1..12 && rowHeight >= 8) }
 
@@ -44,6 +106,8 @@ class ScrollAnalysisSession(private val columns: Int, private val rowHeight: Int
         if (first == null) {
             firstInput = frame; previousInput = frame; motionFrame = frame; anchor = frame
             collect(frame)
+            markSamples += MarkSample(FingerMark(frame.timestampNanos, 0.0, 0, false), 0.0, false, FingerOdometer.gridPhase(frame, rowHeight))
+            lastProcessedTimestamp = frame.timestampNanos
             return
         }
         if (halted) return
@@ -55,6 +119,11 @@ class ScrollAnalysisSession(private val columns: Int, private val rowHeight: Int
 
     private fun processNext() {
         val frame = pending.removeFirst()
+        processFrame(frame)
+        recordMarks(frame)
+    }
+
+    private fun processFrame(frame: GrayScrollFrame) {
         val i = ++processedIndex
         val prior = requireNotNull(previousInput)
         previousInput = frame
@@ -101,7 +170,9 @@ class ScrollAnalysisSession(private val columns: Int, private val rowHeight: Int
                 anchor = previousMotion; anchorOffset = offset
                 shift = matcher.translation(requireNotNull(anchor), frame, rowHeight, velocity * deltaSeconds)
             }
+            if (shift?.repeatedRows == true) ambiguousSinceMark = true
             if (shift == null || anchorOffset + shift.pixels < -1.0 || gap) {
+                ambiguousSinceMark = true
                 uncertain++
                 if (failureFrame == null) failureFrame = i
                 if (failureReason == null) failureReason = when {
@@ -152,6 +223,12 @@ class ScrollAnalysisSession(private val columns: Int, private val rowHeight: Int
         check(firstInput != null)
         if (!finished) {
             while (pending.isNotEmpty() && !halted) processNext()
+            // Rest marks after the last frame: recording stopped with the list still there.
+            while (!halted && marks.isNotEmpty()) {
+                markSamples += MarkSample(marks.removeFirst(), offset, ambiguousSinceMark, lastInput?.let { FingerOdometer.gridPhase(it, rowHeight) })
+                restFrame = lastInput
+                ambiguousSinceMark = false
+            }
             finished = true
         }
         return result()
@@ -161,14 +238,24 @@ class ScrollAnalysisSession(private val columns: Int, private val rowHeight: Int
         // Inventories are packed row by row. Only infer holes between observed occupied rows,
         // never a tail after the last visible item. This assumption is exposed as an estimate.
         val inferred = if (allowEstimation) rows.missingRowsBeforeLastOccupied() else 0
-        val count = rows.count + inferred.toLong() * columns
-        val approximate = allowEstimation && (uncertain > 0 || inferred > 0 || fastAmbiguity)
-        val lowConfidence = approximate && ((fastAmbiguity && largestGap > 28) || uncertain > max(3, sourceFrames / 20))
-        val message = if (lowConfidence) "≈ ESTYMACJA — niska pewność. Przy tym tempie mogło umknąć wiele rzędów. Sprawdź lub popraw liczbę; dokładniejszy odczyt wymaga spokojniejszego przewinięcia."
+        val imageCount = rows.count + inferred.toLong() * columns
+        // Finger odometer (automatic scroll only): whole rows the image may have slipped on identical eggs.
+        val fusion = fusion()
+        val correction = fusion?.correction ?: 0
+        val count = fusion?.let(::endCount) ?: max(0L, imageCount + correction.toLong() * columns)
+        // Finger and image agreeing on every stretch confirms fast motion over identical rows.
+        val fingerConfirmed = fusion != null && fusion.intervals >= 2 && fusion.unsure == 0 && uncertain == 0 && correction == 0
+        val ambiguityLeft = fastAmbiguity && !fingerConfirmed
+        val approximate = allowEstimation && (uncertain > 0 || inferred > 0 || ambiguityLeft || correction != 0)
+        val lowConfidence = approximate && ((ambiguityLeft && largestGap > 28) || uncertain > max(3, sourceFrames / 20))
+        val message = if (correction != 0) "≈ ESTYMACJA z ruchu palca: obraz pomylił się o ${abs(correction)} rz. na identycznych pozycjach; liczbę rzędów wzięto z ruchu palca (obraz: $imageCount)."
+        else if (lowConfidence) "≈ ESTYMACJA — niska pewność. Przy tym tempie mogło umknąć wiele rzędów. Sprawdź lub popraw liczbę; dokładniejszy odczyt wymaga spokojniejszego przewinięcia."
         else if (approximate) "≈ ESTYMACJA: odtworzono niepewne fragmenty z ruchu i pełnych rzędów. Sprawdź liczbę przed zatwierdzeniem."
         else if (uncertain > 0) "Zgubiono fragment listy. Wróć na górę i zeskanuj ponownie, przewijając trochę wolniej."
+        else if (fingerConfirmed) "Prześledzono ruch listy (${sourceFrames} klatek); ruch palca potwierdza liczbę rzędów."
         else "Prześledzono ruch listy (${sourceFrames} klatek). Sprawdź liczbę i ostatni rząd."
         val duration = if (requireNotNull(firstInput).timestampNanos > 0) ((requireNotNull(lastInput).timestampNanos - requireNotNull(firstInput).timestampNanos) / 1_000_000).coerceAtLeast(0) else 0
-        return ScrollAnalysis(count, sourceFrames, uncertain, message, failureFrame, failureReason, duration, largestGap, approximate, inferred, lowConfidence)
+        return ScrollAnalysis(count, sourceFrames, uncertain, message, failureFrame, failureReason, duration, largestGap, approximate, inferred, lowConfidence,
+            imageOnlyCount = imageCount, fingerRowCorrection = correction, fingerDetail = fusion?.let { it.describe() + if (droppedMarks > 0) " pominięte postoje: $droppedMarks" else "" })
     }
 }

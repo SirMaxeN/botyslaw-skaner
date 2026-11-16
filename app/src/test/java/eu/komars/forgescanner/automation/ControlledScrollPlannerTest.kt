@@ -61,7 +61,7 @@ class ControlledScrollPlannerTest {
         val planner = ControlledScrollPlanner(200.0)
         val first = planner.next(1_000_000_000L, null)
         assertEquals(1430.0, first.distancePx, .001)
-        assertEquals(852L, first.durationMillis)
+        assertEquals(530L, first.durationMillis)
         val next = planner.next(2_000_000_000L, 90.0, completedGestureId = 1)
         assertEquals(first.distancePx, next.distancePx, .001)
         assertEquals(first.durationMillis, next.durationMillis)
@@ -71,7 +71,7 @@ class ControlledScrollPlannerTest {
         val planner = ControlledScrollPlanner(200.0)
         var native = 1_000_000_000L
         repeat(20) { planner.observeSourceFrame(native); native += 16_666_667L }
-        assertEquals(852L, planner.next(native, null).durationMillis)
+        assertEquals(530L, planner.next(native, null).durationMillis)
         planner.beginMotion()
         repeat(6) {
             planner.observeSourceFrame(native)
@@ -79,13 +79,13 @@ class ControlledScrollPlannerTest {
             native += 16_666_667L
         }
         planner.endMotion()
-        assertEquals(852L, planner.next(native, null, completedGestureId = 1).durationMillis)
+        assertEquals(530L, planner.next(native, null, completedGestureId = 1).durationMillis)
         planner.beginMotion()
         planner.observeSourceFrame(native)
         native += 16_666_667L
         planner.observeSourceFrame(native)
         planner.endMotion()
-        assertEquals(600L, planner.next(native + 1, null, completedGestureId = 2).durationMillis)
+        assertEquals(400L, planner.next(native + 1, null, completedGestureId = 2).durationMillis)
     }
 
     @Test fun releasesAndIdleGapsNeverPoisonMovingCadenceOrShrinkThePass() {
@@ -103,7 +103,7 @@ class ControlledScrollPlannerTest {
             val decision = planner.next(native + 1, if (pass == 0) null else 90.0, completedGestureId = pass.toLong())
             assertEquals(ControlledScrollPlanner.Kind.DRAG, decision.kind)
             assertEquals(1430.0, decision.distancePx, .001)
-            assertEquals(600L, decision.durationMillis)
+            assertEquals(400L, decision.durationMillis)
             native += 16_666_667L
         }
     }
@@ -115,22 +115,22 @@ class ControlledScrollPlannerTest {
             val drag = planner.next(source + 1, null)
             assertEquals(ControlledScrollPlanner.Kind.DRAG, drag.kind)
             assertEquals(1430.0, drag.distancePx, .001)
-            assertTrue(drag.durationMillis in 600..4000)
+            assertTrue(drag.durationMillis in 400..2500)
             val rowsPerSourceFrame = drag.distancePx / 200 * interval / (drag.durationMillis * 1_000_000.0)
-            assertTrue("Capture interval $interval: $rowsPerSourceFrame", rowsPerSourceFrame <= .280001)
+            assertTrue("Capture interval $interval: $rowsPerSourceFrame", rowsPerSourceFrame <= .450001)
         }
     }
 
     @Test fun oneDelayedMotionFrameIsRobustButRepeatedGapsLengthenThePass() {
         val isolated = ControlledScrollPlanner(200.0)
         val once = motionSamples(isolated, List(12) { 16_666_667L } + 500_000_000L + List(12) { 16_666_667L })
-        assertEquals(600L, isolated.next(once + 1, null).durationMillis)
+        assertEquals(400L, isolated.next(once + 1, null).durationMillis)
         val repeated = ControlledScrollPlanner(200.0)
         val twice = motionSamples(repeated, List(6) { 16_666_667L } + listOf(125_000_000L, 125_000_000L))
         val slow = repeated.next(twice + 1, null)
         assertEquals(ControlledScrollPlanner.Kind.DRAG, slow.kind)
         assertEquals(1430.0, slow.distancePx, .001)
-        assertEquals(3192L, slow.durationMillis)
+        assertEquals(1987L, slow.durationMillis)
     }
 
     @Test fun repeatedUnusableMotionCaptureFailsInsteadOfShrinkingOrWaitingForever() {

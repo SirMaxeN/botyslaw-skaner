@@ -87,6 +87,12 @@ class MobileSyncClient(context: Context, private val demoMode: () -> Boolean = {
         execute(callback) { post("clan-ranking",payload,token(credential)).toString() }
     }
     /** Shared reading knowledge (icons, digits) and profile backup; blocking, call from a worker thread. */
+    /** Technical report of the last resource scan (POST /mobile/diagnostics); the server keeps the last three. */
+    fun sendDiagnostics(payload:JSONObject,callback:(Result<String>)->Unit) {
+        if(demoMode()||!settings.contains("credential")) { main.post { callback(Result.success("skipped")) }; return }
+        val credential=settings.getString("credential",null)
+        execute(callback) { post("diagnostics",payload,token(credential)).optString("status") }
+    }
     fun learningBlocking(payload:JSONObject):JSONObject = post("learning",payload,token(settings.getString("credential",null)),6*1024*1024).also { it.optString("error").takeIf { e->e.isNotEmpty() }?.let { e->error(e) } }
     fun profilesBlocking(payload:JSONObject):JSONObject = post("profiles",payload,token(settings.getString("credential",null)),6*1024*1024)
     fun disconnect() { synchronized(settings) { pairingEpoch.incrementAndGet(); settings.edit().clear().apply() } }

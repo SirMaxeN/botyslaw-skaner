@@ -2,6 +2,46 @@
 
 
 
+## 1.6.6 (63) — Google Play (2026-11-16, egg count from forge2.mp4, mounts stuck at the list end)
+
+- **Recording (Play 1.6.0, automatic scan):** the app showed 359 pets/eggs (356 without the 3 base ones), the friend counted 315. Tracking the list frame by frame in the 57 fps video gives 59.7 rows of travel, i.e. 64 rows = 319 items (316 without the base ones). The app was ~8 rows too high.
+- **Replay of those 729 frames through the current analyzer:** the image alone gives 150–309 depending on the capture rate (it loses or doubles rows on identical eggs). 1.6.5 with finger + still frames gave 345: the row accumulator keeps every row the image ever reached, so an image that ran ahead and slipped back was counted twice once the finger correction was added.
+- **Count from the last rest frame:** with finger marks the result (and the live count) is now read from the still frame of the latest rest at its corrected position: rows above it are full, the frame gives the partial last row.
+- **Press slop from the still frames:** the finger slop per press is measured from the grid phase itself (finger travel minus grid shift, wrapped to ±half a row), not from image stretches that may all be wrong.
+- **Exact sampled row height:** the recorder picks the sample scale so one row is a whole number of sampled pixels (it was 29.6 rounded to 30, which shifted the grid phase ~1.5 px per stretch and row numbers by almost a row over 60 rows).
+- Stretches pushed against the end keep the image travel, now snapped to the still-frame grid phase.
+- **Mounts stuck at the end (server diagnostics, two Play 1.6.5 scans of the same player):** mounts read 211 and 336 while the image saw 91 both times. The list ended inside the third stretch, the end was not detected and 7–16 further strokes moved nothing (clear image, 0 px); the finger counted ~3.6 rows for each. A clear image that sees under 20% of the finger travel now marks the stretch as stuck (no finger evidence), and clear stretches keep the image's whole rows in the still-frame mode (only the fraction snaps to the grid).
+- **Slop fitted to all stretches at once:** the diagnostics show ~0.25 row slop per press and two presses per stretch, more than the half row one stretch can resolve; the slop is now the single value whose predicted grid shift agrees with most still frames.
+- Replay result after the fix: **319** at every capture rate (1–4× frame skipping) with an exact or 0.3-row-biased finger; with the last stretch marked as pushing against the end, 319 at realistic rates (0.3–0.5 row per frame).
+
+## 1.6.5 (62) — AUTO Test (2026-11-16, fast mode: still-frame grid phase, live count, hammers font)
+
+- **Log 1.6.4:** pets 380 = image 290 (lost 18 rows, two stretches even ran backwards) + finger +18 rows; hammers still prompted (9807 in 8/9 frames) because the game font gave no vote.
+- **Fast mode for lists:** on every still frame the app measures where the gaps between rows fall (grid phase, centre of the bright band). The finger gives the whole rows of a stretch, the phase gives its exact fraction, so the count no longer depends on following each moving frame. Used when at least half of the stretches have a phase; else the finger alone. Synthetic list with the finger 0.3 row off on every stretch: same count as an exact finger.
+- **Live count = final count:** the number shown while scrolling now includes the same finger/still-frame correction.
+- **Hammers font:** the hammer icon touching "9307" was cut as the first glyph and the strict read gave nothing. A leading glyph that resembles no digit (best error > 0.40) is skipped; on the saved crop the font now reads 9307 (OCR wobble 9307/9807 is settled by the font).
+- The `inventory` log shows `postoje N rz. -> correction` next to the finger and image.
+
+## 1.6.4 (61) — AUTO Test (2026-11-16, finger marks on still frames, hammers 9307/9807)
+
+- **Log 1.6.3 (recording 16:30):** pets 387 (finger) vs 372 (image) vs 380 true; 1.6.2 at the slower speed gave 380. Two of ten stretches were not whole rows: the rest frame could still be moving.
+- **Finger marks only on a still frame:** a mark is measured on the first frame identical to the one before it (list stopped); none within 500 ms drops the mark (its stretch joins the next). Rest before the check 150 ms (was 90).
+- **Every stretch logged:** `finger` in the `inventory` event lists finger/image rows per stretch ("~" ambiguous, "|" end, "+n" presses) and skipped rests.
+- **Hammers 9307 vs 9807 (30 s + prompt):** with six or more frames, a value read in every frame wins over an alternative seen in up to two thirds of them (3 read as 8). Three frames still need agreement.
+
+## 1.6.3 (60) — AUTO Test (2026-11-16, faster start and list scroll, no second trip to accessibility settings)
+
+- **Accessibility already on:** turning the service on from the home screen did not record the scan disclosure, so the first resource scan showed it and then opened accessibility settings again. When the service is already enabled the disclosure now says so and "Zgadzam się — skanuj" starts the scan directly.
+- **No whole-screen recognition on a normal start or tab tap (~2 s each):** a scan starts at once from the hammers screen; tabs (skills, pets, tech) are trusted. The screen is recognised only after a failed/stopped scan (the next start, i.e. "Kontynuuj"), right after our prompt, or when a counter reads empty (existing recovery).
+- **Faster list scroll (pets, mounts):** up to 0.45 row per captured frame (was 0.28), minimum pass 400 ms (was 600). The finger odometer keeps the whole rows; very slow capture (passes over 2.5 s, < ~6 fps) still stops. Log 1.6.2: pets 383 = finger 69.01 rows vs image 69.35, slop 3.8 px, ~15 fps, 27 s.
+- **Finger-confirmed lists are no longer "niska pewność":** when finger and image agree on every stretch, fast motion over identical rows is not flagged as an estimate.
+
+## 1.6.2 (59) — AUTO Test (2026-11-16, finger odometer for eggs, scan diagnostics)
+
+- **Eggs counted from the finger too:** the automatic scroll now holds the finger still ~90 ms after each pass and records finger travel at that rest frame. Image matching keeps the exact row phase; on stretches where it matched identical rows (eggs), the whole-row count comes from the finger (ratio and press "slop" learned from distinct rows such as pets). A disagreement gives an estimate ("≈ ESTYMACJA z ruchu palca"), never a prompt. Pushes against the list end are ignored.
+- **Scan diagnostics on our server:** after each automatic scan the app sends the scan log (step timings, counter readings per frame, list counts: image vs finger, frames, gaps, row size; no images) to `POST /mobile/diagnostics`. The bot keeps the last three per player; `npm run diagnostics [name]` on the server writes them to `data/diagnostics/`.
+- Test: synthetic list of 101 identical rows counted exactly at 0.28 and 0.44 row per frame; at 0.6 row per frame (image alone: 20) the finger recovers 495–505.
+
 ## 1.6.1 (58) — Google Play AAB (2026-11-16, fewer number prompts, "k"/"m" fix, clan tag, compact prompt)
 
 - **"m"/"M" (millions):** OCR misreads of the suffix right after a number ("1.25rn", "1.2IVI", "1.2MI", "16.2|<", "16.2kl") are repaired before parsing; plain numbers made of an "m"/"b" abbreviation's digits plus up to two more (the wide m split into two glyphs) lose to the abbreviation.

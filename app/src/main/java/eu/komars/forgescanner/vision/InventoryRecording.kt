@@ -8,6 +8,7 @@ import android.os.SystemClock
 import android.util.Log
 import eu.komars.forgescanner.BuildConfig
 import eu.komars.forgescanner.capture.CaptureConnection
+import eu.komars.forgescanner.model.FingerMark
 import eu.komars.forgescanner.model.GrayScrollFrame
 import eu.komars.forgescanner.model.InventoryEndDetector
 import eu.komars.forgescanner.model.SavedCalibration
@@ -53,10 +54,13 @@ class InventoryRecording(
     private var startedAt = 0L
     private val captureTiming = if (BuildConfig.DEBUG) CaptureTiming() else null
     private val maximumBytes = 128L * 1024 * 1024
-    private val sampleWidth = 160
-    private val scale = sampleWidth.toDouble() / calibration.region.width()
+    // Scale chosen so one row is a whole number of sampled pixels (~160 px wide): a rounded row height
+    // (29.6 -> 30) shifts row numbers and the still-frame grid phase by almost a row over a 60-row list.
+    private val sampledRowHeight = (calibration.rowHeightPx * 160.0 / calibration.region.width()).roundToInt().coerceAtLeast(8)
+    private val scale = sampledRowHeight.toDouble() / calibration.rowHeightPx
+    private val sampleWidth = (calibration.region.width() * scale).roundToInt().coerceAtLeast(calibration.columns * 4)
     private val sampleHeight = (calibration.region.height() * scale).roundToInt().coerceIn(16, 600)
-    private val sampledRowHeight = (calibration.rowHeightPx.toDouble() / calibration.region.height() * sampleHeight).roundToInt().coerceAtLeast(8)
+    private val pendingMarks = java.util.concurrent.ConcurrentLinkedQueue<FingerMark>()
 
     fun start(first: Bitmap) {
         check(!active && frames.isEmpty())
@@ -160,6 +164,7 @@ class InventoryRecording(
         countedFrames = frames.size
         LIVE_WORKER.execute {
             val began = if (BuildConfig.DEBUG) SystemClock.elapsedRealtimeNanos() else 0L
+            drainMarks()
             for (frame in fresh) {
                 if (cancelled) break
                 if (streamFailure == null) {
@@ -182,6 +187,12 @@ class InventoryRecording(
         }
     }
 
+    /** Automatic scroll: the list rests at [timestampNanos] after [fingerScreenPx] of finger travel. */
+    fun fingerMark(timestampNanos: Long, fingerScreenPx: Double, presses: Int, blocked: Boolean) {
+        pendingMarks.add(FingerMark(timestampNanos, fingerScreenPx * scale, presses, blocked))
+    }
+    private fun drainMarks() { while (true) streaming.fingerMark(pendingMarks.poll() ?: return) }
+
     fun stop() {
         if (!active) return
         active = false
@@ -194,6 +205,7 @@ class InventoryRecording(
             val result = runCatching {
                 val began = if (BuildConfig.DEBUG) SystemClock.elapsedRealtimeNanos() else 0L
                 streamFailure?.let { throw it }
+                drainMarks()
                 // The same worker owns the stream and its final flush; no duplicate full replay.
                 captured.drop(streamedFrames).forEach { frame -> streaming.offer(frame); streamedFrames++ }
                 val analysis = streaming.finish()

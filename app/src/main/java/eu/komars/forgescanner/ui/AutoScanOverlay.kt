@@ -88,8 +88,14 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
     private val runner = AutoScanRunner(this, AutoScanRunner.Scheduler { delay, action ->
         val task = Runnable(action); handler.postDelayed(task, delay); { handler.removeCallbacks(task) }
     }, { state ->
+        val wasRunning = running
         running = state.status == AutoScanRunner.Status.RUNNING
         activeStep = state.step; status = state.message
+        if (wasRunning && !running) {
+            uploadDiagnostics(state.status)
+            // Only a scan that did not finish makes the next start check which game screen is open.
+            checkScreenOnStart = state.status != AutoScanRunner.Status.COMPLETE
+        }
         if (!running) {
             protectedRegion = null
             dialog?.dismiss(); dialog = null
@@ -278,8 +284,27 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
     }
     fun clearSettings() { hide(); store.clear(); checkpoints.clear(); calibrationFlow.clear(); automaticSetupAttempted = null; completed = false }
     private fun ready() = store.isReady(calibrations)
+    /** Events of the current scan, uploaded once when it ends (no images). */
+    private val scanEvents = ArrayList<org.json.JSONObject>()
+    /** Whole-screen recognition (~2 s) at start only after a failed/stopped scan ("Kontynuuj"). */
+    private var checkScreenOnStart = false
+    private var scanStartedAt: java.time.Instant? = null
+
+    private fun uploadDiagnostics(status: AutoScanRunner.Status) {
+        if (scanEvents.isEmpty()) return
+        val bounds = physicalBounds()
+        val payload = org.json.JSONObject().put("app_version", eu.komars.forgescanner.BuildConfig.VERSION_NAME)
+            .put("version_code", eu.komars.forgescanner.BuildConfig.VERSION_CODE)
+            .put("device", "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}").put("android", android.os.Build.VERSION.SDK_INT)
+            .put("screen", "${bounds.width()}x${bounds.height()}").put("status", status.name)
+            .put("started_at", scanStartedAt?.toString()).put("events", org.json.JSONArray(scanEvents.toList()))
+        scanEvents.clear()
+        runCatching { (context.applicationContext as ScannerApplication).mobile.sendDiagnostics(payload) {} }
+    }
+
     private fun start() {
         if (running || validating || selecting) return
+        scanEvents.clear(); scanStartedAt = java.time.Instant.now()
         if (!ready()) { status = "Uzupełnij brakujące pola ekranów w konfiguracji."; show(); return }
         generation++; counterCache.clear(); calibrationFlow.clear(); automaticSetupAttempted = null; completed = false
         returningHome = true; validating = true
@@ -295,6 +320,12 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
     /** Screen detection is used once to recover the start, never at each route step. */
     private fun returnHome(token: Int, closeAttempted: Boolean = false, attempt: Int = 0) {
         if (token != generation || !returningHome || !validating) return
+        if (!checkScreenOnStart) {
+            // Normal start from the hammers screen: no recognition. A wrong screen shows up as an empty first
+            // counter, which already runs the screen-aware recovery.
+            returningHome = false; validating = false; protectedRegion = null
+            screenFlow.observe(GameNavigationGraph.Screen.HOME); runner.start(); return
+        }
         capture { bitmap ->
             show() // The clean frame is retained; restore STOP before classifying it.
             if (token != generation || !returningHome || !validating) { recycle(bitmap); return@capture }
@@ -379,6 +410,13 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
                 }
                 driver!!.start(bitmap, target, calibration, session, { token == generation && running }, { hint, count ->
                     if (token == generation) liveLabel?.text = "$hint\nOdczytano: ${NumberFormat.getIntegerInstance(Locale.forLanguageTag("pl-PL")).format(count)}"
+                }, onDiagnostic = { analysis ->
+                    scanLog("inventory", "step" to step.name, "count" to analysis.count, "imageCount" to analysis.imageOnlyCount,
+                        "fingerRows" to analysis.fingerRowCorrection, "finger" to analysis.fingerDetail, "frames" to analysis.frames,
+                        "uncertain" to analysis.uncertainFrames, "maxGapMs" to analysis.largestGapMillis, "ms" to analysis.captureDurationMillis,
+                        "inferredRows" to analysis.inferredRows, "approximate" to analysis.approximate, "lowConfidence" to analysis.lowConfidence,
+                        "failure" to analysis.failureReason, "rowPx" to calibration.rowHeightPx, "columns" to calibration.columns,
+                        "region" to calibration.region.toShortString())
                 }) { result ->
                     if (token == generation && running) { driver = null; touchShield.releaseScrollCorridor(); protectedRegion = null; result.fold({ finish(Result.success(it)) }, { showManualReading(step, target, token, ::finish) }) }
                 }
@@ -666,7 +704,8 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
         route.start(step) { result ->
             if (token == generation && running) {
                 savedNavigator = null
-                if (result.isSuccess && (step in VERIFIED_TABS || afterDialog)) verifyDestination(step, token, complete)
+                // Checked only right after our prompt (the game may drop the tap); otherwise trust the tap.
+                if (result.isSuccess && afterDialog) verifyDestination(step, token, complete)
                 else complete(result.map { null })
             }
         }
@@ -821,7 +860,7 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
         GestureConnection.beforeGesture = null; GestureConnection.afterGesture = null; GestureConnection.inputSettleMillis = null
         touchShield.hide(); GestureConnection.cancel()
     }
-    private fun stop(message: String) { runner.cancel(); cancel(); running = false; returningHome = false; validating = false; status = message; protectedRegion = null; show() }
+    private fun stop(message: String) { checkScreenOnStart = true; runner.cancel(); cancel(); running = false; returningHome = false; validating = false; status = message; protectedRegion = null; show() }
     private fun fail(message: String) {
         screenFlow.reset();pendingSetupDestination=null
         if (returningHome) { GestureConnection.cancel(); gesture = null }
@@ -1075,6 +1114,7 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
             val line = org.json.JSONObject().put("at", java.time.Instant.now().toString()).put("event", event)
             details.forEach { (key, value) -> line.put(key, value ?: org.json.JSONObject.NULL) }
             file.appendText(line.toString() + "\n")
+            if (scanEvents.size < 1500) scanEvents += line
         }
     }
     private companion object {
@@ -1082,7 +1122,6 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
         /** Extra bursts of three fresh frames before a disagreement is shown to the player. */
         const val MAX_EXTRA_BURSTS = 2
         const val VERIFY_AFTER_DIALOG_MS = 6000L
-        val VERIFIED_TABS = setOf(AutoScanStep.OPEN_SKILLS, AutoScanStep.OPEN_PETS, AutoScanStep.OPEN_TECH)
     }
     /**
      * [peek] dialogs are compact: a short [heading], a small "Podejrzyj" button, an optional [preview] of the

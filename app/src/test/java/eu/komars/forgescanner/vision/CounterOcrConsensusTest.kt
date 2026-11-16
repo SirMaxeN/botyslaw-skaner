@@ -213,4 +213,16 @@ class CounterOcrConsensusTest {
         // "k" stays strict: one extra digit at most.
         assertFalse(CounterOcrConsensus.shadowedByAbbreviation(16200, mapOf("162" to 1)))
     }
+
+    @Test fun logCase20261116HammersValueInEveryFrameBeatsTheThreeReadAsEight() {
+        // Every frame read 9307 in one OCR pass; 9807 (3 read as 8) in two of three frames, 49307 once. Font: none.
+        val burst = listOf(frameOf(read(9807, "9807"), read(9307, "9307")), frameOf(read(9807, "9807"), read(9307, "9307")),
+            frameOf(read(9307, "9307"), read(49307, "49307")))
+        val three = CounterOcrConsensus.combine(burst, ScanTarget.HAMMERS, List(3) { null })
+        assertTrue("three frames still ask", three.requiresConfirmation)
+        val six = CounterOcrConsensus.combine(burst + listOf(frameOf(read(9807, "9807"), read(9307, "9307")), frameOf(read(9307, "9307")),
+            frameOf(read(9307, "9307"))), ScanTarget.HAMMERS, List(6) { null })
+        assertFalse(six.requiresConfirmation)
+        assertEquals(9307L, six.candidates.single().value)
+    }
 }

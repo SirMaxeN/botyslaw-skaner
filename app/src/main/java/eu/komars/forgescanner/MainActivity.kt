@@ -392,6 +392,17 @@ class MainActivity : Activity() {
             })
             return
         }
+        if (!preferences.getBoolean("disclosed", false) && (gestures.isConnected || gestures.enabledInSettings(this))) {
+            // Accessibility was already turned on from the home screen: only the disclosure is missing.
+            // Accepting it starts the scan instead of sending the player to settings a second time.
+            AlertDialog.Builder(this).setTitle("Sterowanie gestami")
+                .setMessage("Automatyczny skan używa usługi dostępności do naciskania wskazanych przez Ciebie przycisków nawigacji i przewijania list w Forge Master. Rozpoznaje aktywną aplikację, aby zatrzymać gesty po wyjściu z gry. Nie pobiera treści okien przez dostępność; obraz gry analizuje lokalnie po osobnej zgodzie na odczyt ekranu. Nie wysyła obrazów ani nie wykonuje przyzywania, łączenia lub zakupów. Każdy skan uruchamiasz przyciskiem; STOP zatrzymuje sekwencję po bieżącym krótkim geście. Usługa jest już włączona.")
+                .setPositiveButton("Zgadzam się — skanuj") { _, _ ->
+                    preferences.edit().putBoolean("disclosed", true).apply()
+                    startAutomaticMode()
+                }.setNegativeButton("Nie teraz", null).show()
+            return
+        }
         if (!preferences.getBoolean("disclosed", false) || !gestures.isConnected) {
             AlertDialog.Builder(this).setTitle("Opcjonalne sterowanie gestami")
                 .setMessage("Automatyczny skan używa usługi dostępności do naciskania wskazanych przez Ciebie przycisków nawigacji i przewijania list w Forge Master. Rozpoznaje aktywną aplikację, aby zatrzymać gesty po wyjściu z gry. Nie pobiera treści okien przez dostępność; obraz gry analizuje lokalnie po osobnej zgodzie na odczyt ekranu. Nie wysyła obrazów ani nie wykonuje przyzywania, łączenia lub zakupów. Każdy skan uruchamiasz przyciskiem; STOP zatrzymuje sekwencję po bieżącym krótkim geście. Po akceptacji włącz usługę Botysław: automatyczny skan w ustawieniach, wróć tutaj i uruchom ten tryb ponownie. Manualny odczyt działa bez tej zgody.")

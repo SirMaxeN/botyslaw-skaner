@@ -10,7 +10,9 @@ data class GrayScrollFrame(val width: Int, val height: Int, val pixels: ByteArra
     init { require(width >= 16 && height >= 16 && pixels.size == width * height) }
     fun pixel(x: Int, y: Int) = pixels[y * width + x].toInt() and 255
 }
-data class ScrollAnalysis(val count: Long, val frames: Int, val uncertainFrames: Int, val message: String, val failureFrame: Int? = null, val failureReason: String? = null, val captureDurationMillis: Long = 0, val largestGapMillis: Long = 0, val approximate: Boolean = false, val inferredRows: Int = 0, val lowConfidence: Boolean = false)
+data class ScrollAnalysis(val count: Long, val frames: Int, val uncertainFrames: Int, val message: String, val failureFrame: Int? = null, val failureReason: String? = null, val captureDurationMillis: Long = 0, val largestGapMillis: Long = 0, val approximate: Boolean = false, val inferredRows: Int = 0, val lowConfidence: Boolean = false,
+    /** Count from images alone; differs from [count] when the finger odometer corrected whole rows. */
+    val imageOnlyCount: Long = count, val fingerRowCorrection: Int = 0, val fingerDetail: String? = null)
 
 /** Tracks consecutive motion, including repeated rows, in a shared document coordinate system. */
 class ScrollSequenceAnalyzer(private val trace: ((Int, Double, Double) -> Unit)? = null) {
