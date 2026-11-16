@@ -7,11 +7,13 @@
   wersja sklep      # Google Play: tests + lint + signed AAB in releases\ (no test APK)
   wersja test       # AUTO Test APK in releases\ (no installation)
   wersja telefon    # AUTO Test APK + installation on the USB phone (calibration and pairing kept)
+  Asks whether to raise the version first (Enter = yes); -Bump raises without asking, -NoBump keeps the numbers.
 #>
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)][string]$Mode,
     [switch]$NoBump,
+    [switch]$Bump,
     [switch]$NoWait,
     [string]$DeviceSerial
 )
@@ -93,7 +95,14 @@ try {
     # 1. Version: +1 code, +1 last part of the name. Restored if anything below fails.
     $originalGradle = [IO.File]::ReadAllText($gradleFile)
     $current = Get-Version $originalGradle
+    $now = "$($current.Major).$($current.Minor).$($current.Patch) ($($current.Code))"
+    $next = "$($current.Major).$($current.Minor).$($current.Patch + 1) ($($current.Code + 1))"
+    if (!$NoBump -and !$Bump) {
+        $answer = Read-Host "Podnieść wersję $now -> $next? [T/n]"
+        $NoBump = "$answer".Trim().ToLowerInvariant() -in @('n', 'nie', 'no')
+    }
     if ($NoBump) {
+        Write-Host "Wersja bez zmian: $now" -ForegroundColor Cyan
         $code = $current.Code; $name = "$($current.Major).$($current.Minor).$($current.Patch)"
     } else {
         $code = $current.Code + 1; $name = "$($current.Major).$($current.Minor).$($current.Patch + 1)"
