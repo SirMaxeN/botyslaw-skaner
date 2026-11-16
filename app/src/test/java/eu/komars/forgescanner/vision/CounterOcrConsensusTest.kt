@@ -172,9 +172,45 @@ class CounterOcrConsensusTest {
         assertEquals(388L, settled.candidates.single().value)
     }
 
+    private fun read(value: Long, text: String, approximate: Boolean = false) =
+        OcrCandidate(null, value, text, ScreenBounds(10, 10, 100, 50), .8f, approximate, "test")
+    private fun frameOf(vararg candidates: OcrCandidate) = OcrAnalysis(candidates.toList(), emptyList())
+
+    @Test fun logCase20261116HammersStrayZeroAndLastDigitWobbleIsSettledByTheGameFont() {
+        val frames = List(3) { frame(0, 8951, 8950) }
+        assertTrue(CounterOcrConsensus.combine(frames, ScanTarget.HAMMERS).requiresConfirmation)
+        val settled = CounterOcrConsensus.combine(frames, ScanTarget.HAMMERS, listOf(8951L, 8951L, 8951L))
+        assertFalse(settled.requiresConfirmation)
+        assertEquals(8951L, settled.candidates.single().value)
+        // The stray 0 alone is noise next to a 4-digit number.
+        assertEquals(8951L, CounterOcrConsensus.combine(List(3) { frame(0, 8951) }, ScanTarget.HAMMERS).candidates.single().value)
+    }
+
+    @Test fun logCase20261116KeysShownAsThousandsAreNotReplacedByTheKReadAsADigit() {
+        // "16.2k" on screen: OCR keeps the abbreviation, the font (or OCR) reads the k as 0 -> 1620, a badge as 9.
+        val frames = List(3) { frameOf(read(16200, "16.2k", approximate = true), read(1620, "1620"), read(9, "9")) }
+        val result = CounterOcrConsensus.combine(frames, ScanTarget.MOUNT_KEYS, List(3) { 1620L })
+        assertFalse(result.requiresConfirmation)
+        assertEquals(16200L, result.candidates.single().value)
+        assertTrue(result.candidates.single().approximate)
+        assertTrue(CounterOcrConsensus.shadowedByAbbreviation(162, setOf("162")))
+        assertFalse(CounterOcrConsensus.shadowedByAbbreviation(16210, setOf("162")))
+    }
+
     @Test fun abbreviatedOcrDoesNotGetOverriddenByDigitsMissingTheSuffix() {
         val result = CounterOcrConsensus.combine(List(3) { frame(1250, approximate = true) }, ScanTarget.HAMMERS, List(3) { 125L })
         assertTrue(result.requiresConfirmation)
         assertEquals(1250L, result.candidates.first().value)
+    }
+
+    @Test fun millionsShownAsMAreNotReplacedByTheWideMReadAsDigits() {
+        // "1.25m": the wide m is split by the font into two digits (12500) or dropped by OCR (125).
+        val frames = List(3) { frameOf(read(1_250_000, "1.25m", approximate = true), read(12500, "12500"), read(125, "125")) }
+        val result = CounterOcrConsensus.combine(frames, ScanTarget.HAMMERS, List(3) { 12500L })
+        assertFalse(result.requiresConfirmation)
+        assertEquals(1_250_000L, result.candidates.single().value)
+        assertTrue(CounterOcrConsensus.shadowedByAbbreviation(12500, mapOf("125" to 2)))
+        // "k" stays strict: one extra digit at most.
+        assertFalse(CounterOcrConsensus.shadowedByAbbreviation(16200, mapOf("162" to 1)))
     }
 }

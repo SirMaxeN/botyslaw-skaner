@@ -48,6 +48,20 @@ object GameNumberParser {
     private val complete = Regex("^([0-9][0-9., \\u00a0\\u202f]*)([kKmMbB]?)$")
     val tokenPattern = Regex("(?<![\\p{L}\\d])\\d+(?:[.,]\\d+|[ \\u00a0\\u202f]\\d{3})*\\s*[kKmMbB]?(?![\\p{L}\\d])")
     private val plainDecimal = Regex("^([0-9]+)(?:\\.([0-9]*))?$")
+    private val suffixMisread = Regex("(?<=\\d)(\\s?)(rn|nn|IVI|lVl|\\|V\\||\\|<|I<|l<|[kKmMbB])[lI|!']{0,2}(?![\\p{L}\\d])")
+
+    /**
+     * OCR misreads of the k/m/b suffix right after a number: "1.25rn" / "1.2IVI" / "16.2|<" / "16.2kl" become
+     * "1.25m" / "1.2M" / "16.2k" / "16.2k". Without this the token stops before the letters and reads "1".
+     */
+    fun cleanSuffixes(text: String): String = suffixMisread.replace(text) { match ->
+        match.groupValues[1] + when (val suffix = match.groupValues[2]) {
+            "rn", "nn" -> "m"
+            "IVI", "lVl", "|V|" -> "M"
+            "|<", "I<", "l<" -> "k"
+            else -> suffix
+        }
+    }
 
     fun parse(raw: String): ParsedGameNumber? {
         val match = complete.matchEntire(raw.trim()) ?: return null

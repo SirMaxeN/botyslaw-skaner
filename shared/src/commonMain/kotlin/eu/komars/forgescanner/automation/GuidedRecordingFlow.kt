@@ -80,7 +80,7 @@ class GuidedRecordingFlow {
     fun observe(textByCounter: Map<String, String>): List<RecordingValue> {
         val values = visible.mapNotNull { counter ->
             val raw = textByCounter[counter.key] ?: return@mapNotNull null
-            val cleaned = if (counter.key == "skill_cost_x5") raw.replace(Regex("[x×]\\s*5", RegexOption.IGNORE_CASE), "") else raw
+            val cleaned = GameNumberParser.cleanSuffixes(if (counter.key == "skill_cost_x5") raw.replace(Regex("[x×]\\s*5", RegexOption.IGNORE_CASE), "") else raw)
             val parsed = GameNumberParser.parse(cleaned)
                 ?: GameNumberParser.tokenPattern.findAll(cleaned).toList().singleOrNull()?.value?.let(GameNumberParser::parse)
                 ?: return@mapNotNull null

@@ -14,11 +14,45 @@ object CounterOcrConsensus {
         }
 
     /** Font votes are strict shape matches, one per source frame. A cached value supplies no vote. */
+    /**
+     * Digits of every abbreviation read on the label ("16.2k" -> "162"). A plain number made of those digits
+     * plus at most one more ("1620": the k read as a digit, or "162": the k dropped) is the same label misread.
+     */
+    fun abbreviationDigits(candidates: List<OcrCandidate>): Set<String> = candidates
+        .filter { it.approximate && it.sourceText.any { c -> c in "kKmMbB" } }
+        .map { it.sourceText.filter(Char::isDigit) }.filter { it.isNotEmpty() }.toSet()
+
+    fun shadowedByAbbreviation(value: Long, abbreviations: Set<String>): Boolean =
+        shadowedByAbbreviation(value, abbreviations.associateWith { 1 })
+
+    /**
+     * Abbreviation digits with how many extra digits a misread may add: "k" is one glyph, while the wide "m"/"M"
+     * (and "b") is often split into two ("1.25m" read as "1.25rn", "12500" or "125000").
+     */
+    fun abbreviationShadows(candidates: List<OcrCandidate>): Map<String, Int> = candidates
+        .filter { it.approximate && it.sourceText.any { c -> c in "kKmMbB" } }
+        .mapNotNull { c -> c.sourceText.filter(Char::isDigit).takeIf { it.isNotEmpty() }?.let { it to if (c.sourceText.any { s -> s in "mMbB" }) 2 else 1 } }
+        .groupBy({ it.first }, { it.second }).mapValues { (_, extra) -> extra.max() }
+
+    fun shadowedByAbbreviation(value: Long, abbreviations: Map<String, Int>): Boolean {
+        val digits = value.toString()
+        return abbreviations.any { (it, extra) -> it.length >= 2 && digits.startsWith(it) && digits.length - it.length in 0..extra }
+    }
+
     fun combine(frames: List<OcrAnalysis>, target: ScanTarget, fontVotes: List<Long?> = emptyList()): OcrAnalysis {
         require(!target.isInventory)
-        val choices = frames.map { frame ->
+        val raw = frames.map { frame ->
             OcrChoices.unique(frame.candidates.filter { it.field == null || it.field == target.field }, target.field.isCost)
         }
+        val abbreviations = abbreviationShadows(raw.flatten())
+        val choices = raw.map { frame ->
+            // A lone digit next to a 3+ digit number in the same crop is icon/badge noise, not the counter.
+            val longest = frame.filterNot { !it.approximate && shadowedByAbbreviation(it.value, abbreviations) }.maxOfOrNull { it.value } ?: 0L
+            frame.filterNot { !it.approximate && shadowedByAbbreviation(it.value, abbreviations) }
+                .filterNot { it.value < 10 && longest >= 100 }
+        }
+        @Suppress("NAME_SHADOWING")
+        val fontVotes = fontVotes.map { vote -> vote?.takeUnless { shadowedByAbbreviation(it, abbreviations) } }
         val votes = choices.flatMap { it.map(OcrCandidate::value) }.groupingBy { it }.eachCount()
         val candidates = choices.flatten().groupBy(OcrCandidate::value).map { (value, readings) ->
             val best = readings.sortedWith(compareBy<OcrCandidate> { it.approximate }.thenByDescending { it.confidence }).first()
@@ -62,10 +96,13 @@ object CounterOcrConsensus {
                 (font == null || font == top.value) && (unanimousFont == null || unanimousFont == top.value) &&
                 !conflictsWith(top.value)
         }
-        // Game-font majority settles OCR alternatives it agrees with, unless another value has two OCR frames.
+        /** [value] is never read alone: every frame that has it also has [other] (an OCR wobble, e.g. 8950/8951). */
+        fun onlyBeside(value: Long, other: Long) = choices.all { frame -> frame.none { it.value == value } || frame.any { it.value == other } }
+        // Game-font majority settles OCR alternatives it agrees with, unless another value is independently
+        // read in two (or as many) frames. Values that only ever appear next to the font's value are a wobble it breaks.
         val fontSettles = !stable && fontCandidate != null && !conflictsWith(font) &&
             (candidates.isEmpty() && unanimousFont == font ||
-                (votes[font] ?: 0) >= 1 && candidates.none { it.value != font &&
+                (votes[font] ?: 0) >= 1 && candidates.none { it.value != font && !onlyBeside(it.value, font!!) &&
                     (framesWith[it.value] ?: 0) >= (if (extended) maxOf(2, framesWith[font] ?: 0) else 2) })
         val confirmed = when {
             stable && (font == null || font == candidates.single().value) && (unanimousFont == null || unanimousFont == candidates.single().value) -> candidates.single()

@@ -14,15 +14,25 @@ internal object WarRosterProof {
   }?.takeIf {key(it).length>=2}?.let(::displayName)
  }
  /**
-  * OCR reads the clan tag's square brackets as "(" and "J"/")" and keeps the decorative underscores:
-  * "PolskaMoc(_PL_J" and "PolskaMOC[_PL_]" both mean "PolskaMoc[PL]". Only a trailing tag is rewritten.
+  * A clan name in the game always ends with its tag in square brackets. OCR reads those brackets as "(", "J",
+  * ")", "|", a space or nothing at all and keeps the decorative underscores: "PolskaMoc(_PL_J",
+  * "PolskaMOC[_PL_]", "PolskaMoc PL J" and "PolskaMoc PL]" all mean "PolskaMoc[PL]". Only a trailing tag is
+  * rewritten; without any bracket left, a final upper-case word after a space or "_" is taken as the tag.
   */
  fun displayName(raw:String):String {
-  // A lost closing bracket is often read as "J" ("PolskaMoc(PLJ"): the tag stops before a final J/j/|/).
-  val match=Regex("""^(.*?)\s*[\[(]\s*_*\s*([A-Za-z0-9]{1,6}?)\s*_*\s*[\])Jj|]?\s*$""").find(raw.trim())
-   ?:Regex("""^(.*?[A-Za-z0-9])_+([A-Z0-9]{1,6})_+[\])Jj|]\s*$""").find(raw.trim())?:return raw.trim()
-  val name=match.groupValues[1].trim();val tag=match.groupValues[2].uppercase()
-  return if(name.isEmpty())raw.trim() else "$name[$tag]"
+  val text=raw.trim()
+  val match=
+   // Opening bracket kept; the closing one may be lost or read as "J" ("PolskaMoc(PLJ").
+   Regex("""^(.*?)\s*[\[({]\s*_*\s*([A-Za-z0-9]{1,6}?)\s*_*\s*[\])}Jj|]?\s*$""").find(text)
+   // Opening bracket lost: the tag stands apart (space, "_" or "|") and ends with a bracket or a separate "J".
+   ?:Regex("""^(.*?[\p{L}\p{N}])(?:\s*\|\s*|[\s_]+)_*([A-Z0-9]{1,6})_*\s*(?:[\])}|]|(?<=[\s_])[Jj])\s*$""").find(text)
+   // Opening bracket lost without a gap: "PolskaMocPL]" (a real closing bracket, the tag in capitals).
+   ?:Regex("""^(.*?\p{Ll})([A-Z0-9]{1,6})_*\s*[\])}]\s*$""").find(text)
+   // Both brackets lost: "PolskaMoc PL", "PolskaMOC_PL_", "PolskaMoc PLJ" (the closing bracket read as "J").
+   ?:Regex("""^(.*?[\p{L}\p{N}])[\s_]+_*([A-Z0-9]{2,6}?)_*\s*[Jj]?$""").find(text)
+   ?:return text
+  val name=match.groupValues[1].trim().trimEnd('_').trim();val tag=match.groupValues[2].uppercase()
+  return if(name.isEmpty())text else "$name[$tag]"
  }
  /** A strict cached-image check also catches the same header when OCR spells its clan tag differently. */
  fun headerSnapshot(w:Int,h:Int,p:IntArray):IntArray {

@@ -83,6 +83,17 @@ object GameDigitFont {
   return (if(union==0)1.0 else 1-common.toDouble()/union)+kotlin.math.abs(a.aspect-b.aspect)*.5
  }
  /** Best digit for one glyph, or null when it is not clearly separated from the runner-up digit. */
+ /**
+  * A learned or shared sample is kept only if the bundled reference agrees it can be that digit: either the
+  * reference reads it as the same digit, or it is close to that digit's reference shapes. Stops poisoning such
+  * as the "k" of "16.2k" stored as a 0 after "1620" was confirmed (2026-11-16).
+  */
+ fun plausible(sample:Sample,reference:List<Sample>):Boolean {
+  if(reference.isEmpty())return true
+  val own=reference.filter {it.digit==sample.digit}.minOfOrNull {error(sample.glyph,it.glyph)}?:return true
+  val nearest=reference.minByOrNull {error(sample.glyph,it.glyph)}?:return true
+  return nearest.digit==sample.digit&&own<=.40||own<=.24
+ }
  fun classify(glyph:Glyph,samples:List<Sample>,maxError:Double=.32,minMargin:Double=.07):Int? {
   val scores=samples.groupBy {it.digit}.map {(digit,list)->digit to list.minOf {error(glyph,it.glyph)}}.sortedBy {it.second}
   val best=scores.firstOrNull()?:return null

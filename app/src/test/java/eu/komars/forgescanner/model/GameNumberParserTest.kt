@@ -26,4 +26,16 @@ class GameNumberParserTest {
             assertNull("Accepted $it", GameNumberParser.parse(it))
         }
     }
+
+    @Test fun ocrMisreadsOfTheSuffixAreRepaired() {
+        assertEquals("1.25m", GameNumberParser.cleanSuffixes("1.25rn"))
+        assertEquals("1.2M", GameNumberParser.cleanSuffixes("1.2IVI"))
+        assertEquals("1.2M", GameNumberParser.cleanSuffixes("1.2MI"))
+        assertEquals("16.2k", GameNumberParser.cleanSuffixes("16.2|<"))
+        assertEquals("Klucze: 16.2k", GameNumberParser.cleanSuffixes("Klucze: 16.2kl"))
+        // Words after a number are left alone.
+        assertEquals("5 bilety", GameNumberParser.cleanSuffixes("5 bilety"))
+        assertEquals("16 mln", GameNumberParser.cleanSuffixes("16 mln"))
+        assertEquals("x5 188", GameNumberParser.cleanSuffixes("x5 188"))
+    }
 }

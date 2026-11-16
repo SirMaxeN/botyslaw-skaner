@@ -50,17 +50,18 @@ object OcrCandidateExtractor {
     fun extract(lines: List<OcrLine>, step: ScanStep): List<OcrCandidate> {
         val result = mutableListOf<OcrCandidate>()
         for (line in lines) {
-            for (match in GameNumberParser.tokenPattern.findAll(line.text)) {
+            val text = GameNumberParser.cleanSuffixes(line.text)
+            for (match in GameNumberParser.tokenPattern.findAll(text)) {
                 // Do not turn pack sizes and multiplication labels into resource values.
-                val before = line.text.getOrNull(match.range.first - 1)
-                val after = line.text.getOrNull(match.range.last + 1)
-                val timeComponent = (before == ':' && line.text.getOrNull(match.range.first - 2)?.isDigit() == true) ||
-                    (after == ':' && line.text.getOrNull(match.range.last + 2)?.isDigit() == true)
+                val before = text.getOrNull(match.range.first - 1)
+                val after = text.getOrNull(match.range.last + 1)
+                val timeComponent = (before == ':' && text.getOrNull(match.range.first - 2)?.isDigit() == true) ||
+                    (after == ':' && text.getOrNull(match.range.last + 2)?.isDigit() == true)
                 if (before == 'x' || before == 'X' || after == 'x' || after == 'X' || timeComponent) continue
                 val parsed = GameNumberParser.parse(match.value) ?: continue
                 val value = parsed.wholeValueOrNull() ?: continue
-                val fraction = match.range.first.toFloat() / max(line.text.length, 1)
-                val endFraction = (match.range.last + 1).toFloat() / max(line.text.length, 1)
+                val fraction = match.range.first.toFloat() / max(text.length, 1)
+                val endFraction = (match.range.last + 1).toFloat() / max(text.length, 1)
                 val bounds = line.bounds.copy(left = line.bounds.left + (line.bounds.width * fraction).toInt(), right = line.bounds.left + (line.bounds.width * endFraction).toInt())
                 val ranked = step.fields.map { field -> field to labelScore(field, line, lines) }.sortedByDescending { it.second }
                 val best = ranked.firstOrNull()

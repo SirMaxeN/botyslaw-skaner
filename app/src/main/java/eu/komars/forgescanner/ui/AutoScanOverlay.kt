@@ -45,6 +45,8 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
     private var selector: ScreenSelectionWindow? = null
     private var selectedBitmap: Bitmap? = null
     private var dialog: AlertDialog? = null
+    /** Last crop of each counter, shown in the "choose the number" prompt and kept in the scan log. */
+    private val counterCrops = HashMap<ScanTarget, Bitmap>()
     /** Uptime when our last dialog closed: the game (Unity) needs a moment to regain focus before it accepts a tap. */
     private var dialogClosedAt = 0L
     private var gesture: GestureSession? = null
@@ -416,6 +418,10 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
         }
         var sourceFrames = 0
         var accumulated: CounterBurstHistory = history
+        for ((counter, region) in regions) runCatching {
+            val r = Rect(region); if (r.intersect(0, 0, bitmap.width, bitmap.height) && r.width() > 4 && r.height() > 4)
+                counterCrops.put(counter, Bitmap.createBitmap(bitmap, r.left, r.top, r.width(), r.height()))?.recycle()
+        }
         CounterBurstReader(ocr, diagnostics = { metrics ->
             sourceFrames = metrics.sourceFrames
             if (eu.komars.forgescanner.BuildConfig.DEBUG) android.util.Log.d("ScannerCounter",
@@ -434,7 +440,9 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
             val choices = OcrChoices.unique(analysis.candidates, target.field.isCost).filter { it.field == target.field }
             val emptyBursts = if (sourceFrames == CounterOcrConsensus.FRAME_COUNT && choices.isEmpty()) emptyCompleteBursts + 1 else 0
             scanLog("counter", "step" to step.name, "attempt" to attempt, "frames" to (accumulated[target]?.first?.size ?: sourceFrames),
-                "choices" to choices.joinToString { it.value.toString() }, "settled" to (reading != null))
+                "choices" to choices.joinToString { it.value.toString() }, "settled" to (reading != null),
+                "perFrame" to accumulated[target]?.first?.joinToString(" | ") { frame -> frame.candidates.joinToString(",") { "${it.value}${if (it.approximate) "≈" else ""}'${it.sourceText}'" } },
+                "font" to accumulated[target]?.second?.joinToString(",") { it?.toString() ?: "-" })
             if (reading != null) {
                 complete(Result.success(reading))
             } else if (attempt == 0 || attempt < MAX_EXTRA_BURSTS && choices.isNotEmpty()) {
@@ -509,6 +517,9 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
         liveLabel?.text = if (choices.isEmpty()) "Ponów odczyt lub wpisz wartość ręcznie."
             else "Wybierz liczbę widoczną w grze. Zaznaczenie pozostaje bez zmian."
         var prompt: AlertDialog? = null
+        // A label shown as "16.2k" has letters and separators among its glyphs: never teach digits from it.
+        val abbreviatedLabel = CounterOcrConsensus.abbreviationDigits(analysis.candidates).isNotEmpty() ||
+            analysis.lines.any { line -> Regex("\\d[.,]?\\d*\\s*[kKmMbB]\\b").containsMatchIn(line.text) }
         fun activePrompt() = current() && dialog === prompt
         fun dismissPrompt() { prompt?.dismiss(); if (dialog === prompt) dialog = null }
         fun retry() {
@@ -523,7 +534,7 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
         fun enterManually() {
             if (!activePrompt()) return
             dismissPrompt()
-            showManualReading(step, target, token, complete)
+            showManualReading(step, target, token, complete, abbreviatedLabel, calibration.region)
         }
         fun cancelRead() {
             if (!activePrompt()) return
@@ -548,7 +559,7 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
                     // this crop and share the learned digits with every phone (/mobile/learning), not only after review.
                     if (!app.demo) {
                         if (target.field.isCost && choices.size > 1) choicePrefs.edit().putLong(choiceKey, chosen.value).apply()
-                        if (!chosen.approximate) learnCounter(target, chosen.value)
+                        if (!chosen.approximate) learnCounter(target, chosen.value, abbreviatedLabel)
                     }
                     complete(Result.success(AutoReading(chosen.value, approximate = chosen.approximate,
                         source = "Potwierdzono ręcznie: ${chosen.sourceText}")))
@@ -561,18 +572,35 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
             .create()
         prompt = alert
         alert.setOnCancelListener { cancelRead() }
-        showDialog(alert,peek=true)
+        saveCounterCrop(step, analysis)
+        showDialog(alert,peek=true,heading=if (choices.isEmpty()) "${step.title}: brak liczby" else "${step.title}: wybierz liczbę",
+            avoid=calibration.region,preview=counterCrops[target])
     }
 
-    private fun learnCounter(target: ScanTarget, value: Long) {
+    /** Keeps the crop and every reading of a prompted counter in files/logs/resource-crops for diagnosis. */
+    private fun saveCounterCrop(step: AutoScanStep, analysis: OcrAnalysis) {
+        runCatching {
+            val crop = counterCrops[step.target ?: return] ?: return
+            val dir = java.io.File(context.getExternalFilesDir(null) ?: return, "logs/resource-crops").apply { mkdirs() }
+            dir.listFiles()?.sortedBy { it.lastModified() }?.dropLast(40)?.forEach { it.delete() }
+            val name = "${step.name}-${System.currentTimeMillis()}"
+            java.io.File(dir, "$name.png").outputStream().use { crop.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            scanLog("prompt", "step" to step.name, "crop" to "$name.png",
+                "candidates" to analysis.candidates.joinToString(" | ") { "${it.value}${if (it.approximate) "≈" else ""} '${it.sourceText}' ${it.reason.take(40)}" },
+                "lines" to analysis.lines.joinToString(" / ") { it.text }.take(300))
+        }
+    }
+
+    private fun learnCounter(target: ScanTarget, value: Long, abbreviatedLabel: Boolean = false) {
         val app = context.applicationContext as ScannerApplication
         if (app.demo || target.isInventory) return
+        if (abbreviatedLabel) { runCatching { eu.komars.forgescanner.battle.GameDigitMemory.shared?.discardCounterCrop(target.field.name) }; return }
         runCatching { eu.komars.forgescanner.battle.GameDigitMemory.shared?.confirmCounter(target.field.name, value) }
         runCatching { app.knowledge.syncAsync(force = true) }
     }
 
     private fun showManualReading(step: AutoScanStep, target: ScanTarget, token: Int,
-                                  complete: (Result<AutoReading?>) -> Unit) {
+                                  complete: (Result<AutoReading?>) -> Unit, abbreviatedLabel: Boolean = false, avoid: Rect? = null) {
         val input = android.widget.EditText(context).apply {
             hint = if (target.field.isCost) "Koszt przyzwania" else "Wartość, również 0"
             inputType = android.text.InputType.TYPE_CLASS_NUMBER
@@ -590,7 +618,7 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
             .setNegativeButton("Zatrzymaj") { _, _ -> stop("Zatrzymano skan.") }
             .create()
         alert.setOnCancelListener { if (token == generation && running) stop("Zatrzymano skan.") }
-        showDialog(alert, peek = true)
+        showDialog(alert, peek = true, heading = "${step.title}: wpisz wartość", avoid = avoid, preview = counterCrops[target])
         alert.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
             if (token != generation || !running || activeStep != step || dialog !== alert) return@setOnClickListener
             val value = input.text.toString().trim().toLongOrNull()
@@ -601,7 +629,7 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
             }
             alert.dismiss()
             if (dialog === alert) dialog = null
-            learnCounter(target, value)
+            learnCounter(target, value, abbreviatedLabel)
             complete(Result.success(AutoReading(value, source = "Wpisano ręcznie")))
         }
     }
@@ -789,6 +817,7 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
         generation++; savedNavigator?.cancel(); savedNavigator = null
         navigator?.cancel(); navigator = null; cancelNavigationFrame()
         counterCache.clear(); driver?.cancel(); driver = null; gesture = null
+        counterCrops.values.forEach { if (!it.isRecycled) it.recycle() }; counterCrops.clear()
         GestureConnection.beforeGesture = null; GestureConnection.afterGesture = null; GestureConnection.inputSettleMillis = null
         touchShield.hide(); GestureConnection.cancel()
     }
@@ -1055,12 +1084,18 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
         const val VERIFY_AFTER_DIALOG_MS = 6000L
         val VERIFIED_TABS = setOf(AutoScanStep.OPEN_SKILLS, AutoScanStep.OPEN_PETS, AutoScanStep.OPEN_TECH)
     }
-    private fun showDialog(alert: AlertDialog,peek:Boolean=false) {
+    /**
+     * [peek] dialogs are compact: a short [heading], a small "Podejrzyj" button, an optional [preview] of the
+     * counter crop, no dimming, at most ~330 dp wide and placed at the screen edge away from [avoid] (the field
+     * being read), so the game number stays visible without minimising.
+     */
+    private fun showDialog(alert: AlertDialog,peek:Boolean=false,heading:String?=null,avoid:Rect?=null,preview:Bitmap?=null) {
         removePreviewReturn();dialog?.dismiss();dialog=alert
         if(peek) {
-            val title=LinearLayout(context).apply {orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(8),dp(16),0);setBackgroundColor(ScannerAppearance.BACKGROUND)}
-            title.addView(TextView(context).apply {text="Sprawdź odczyt";textSize=20f;setTextColor(Color.WHITE)})
-            title.addView(button("Podejrzyj grę") {
+            val title=LinearLayout(context).apply {orientation=LinearLayout.VERTICAL;setPadding(dp(14),dp(8),dp(14),0);setBackgroundColor(ScannerAppearance.BACKGROUND)}
+            val row=LinearLayout(context).apply {orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL}
+            row.addView(TextView(context).apply {text=heading?:"Sprawdź odczyt";textSize=15f;setTextColor(Color.WHITE)},LinearLayout.LayoutParams(0,-2,1f))
+            row.addView(button("Podejrzyj") {
                 alert.hide();root?.visibility=View.GONE;touchShield.hide()
                 val restore=button("Wróć do wyboru") {
                     removePreviewReturn();root?.visibility=View.VISIBLE;alert.show()
@@ -1068,7 +1103,12 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
                 }
                 val params=WindowManager.LayoutParams(dp(180),-2,WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,PixelFormat.TRANSLUCENT).apply {gravity=Gravity.TOP or Gravity.START;x=dp(8);y=dp(40)}
                 previewReturn=restore;manager.addView(restore,params)
-            })
+            }.apply {textSize=11f;minHeight=dp(36);minimumHeight=dp(36)})
+            title.addView(row)
+            if(preview!=null&&!preview.isRecycled) title.addView(android.widget.ImageView(context).apply {
+                setImageBitmap(preview);adjustViewBounds=true;scaleType=android.widget.ImageView.ScaleType.FIT_START
+                contentDescription="Odczytywane pole"
+            },LinearLayout.LayoutParams(-1,dp(44)).apply {topMargin=dp(6)})
             alert.setCustomTitle(title)
         }
         alert.setOnDismissListener {
@@ -1076,6 +1116,14 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
             dialogClosedAt=android.os.SystemClock.uptimeMillis()
         }
         alert.window?.setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY);alert.show()
+        if(peek) alert.window?.let {window ->
+            val screen=physicalBounds()
+            val fieldInTopHalf=(avoid?.centerY()?:0)<screen.height()/2
+            window.setLayout(minOf(dp(330),screen.width()*92/100),WindowManager.LayoutParams.WRAP_CONTENT)
+            window.setGravity((if(avoid==null||fieldInTopHalf)Gravity.BOTTOM else Gravity.TOP) or Gravity.CENTER_HORIZONTAL)
+            window.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+            window.attributes=window.attributes.apply {y=dp(16)}
+        }
     }
     private fun openApp(review: Boolean) {
         // Start while our overlay is still visible; newer Android versions gate background launches.

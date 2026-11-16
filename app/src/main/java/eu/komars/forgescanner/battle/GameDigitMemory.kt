@@ -21,12 +21,20 @@ class GameDigitMemory(context:Context) {
  private fun learned()=GameDigitFont.decode(prefs.getString("samples","").orEmpty())
  /** Samples learned by other players' phones, downloaded from the bot server (kept apart from local ones). */
  private fun sharedSamples()=GameDigitFont.decode(prefs.getString("shared_samples","").orEmpty())
- private fun samples()=bundled+learned()+sharedSamples()
+ /** Learned and shared samples must look like their digit to the bundled font (no letters stored as digits). */
+ private fun trusted(list:List<GameDigitFont.Sample>)=list.filter {GameDigitFont.plausible(it,bundled)}
+ @Volatile private var cached:Pair<String,List<GameDigitFont.Sample>>?=null
+ /** Filtered once per change of the stored samples, not on every frame. */
+ private fun samples():List<GameDigitFont.Sample> {
+  val key=prefs.getString("samples","").orEmpty()+"|"+prefs.getString("shared_samples","").orEmpty()
+  cached?.takeIf {it.first==key}?.let {return it.second}
+  return (bundled+trusted(learned()+sharedSamples())).also {cached=key to it}
+ }
  /** Local learned samples for upload to the shared base. */
- fun exportLearned():List<GameDigitFont.Sample> = learned()
+ fun exportLearned():List<GameDigitFont.Sample> = trusted(learned())
  fun importShared(fresh:List<GameDigitFont.Sample>) {
   if(fresh.isEmpty())return
-  val kept=(sharedSamples()+fresh).distinctBy {it.digit to it.glyph.bits}.groupBy {it.digit}.values.flatMap {it.takeLast(SHARED_SAMPLES_PER_DIGIT)}
+  val kept=trusted(sharedSamples()+fresh).distinctBy {it.digit to it.glyph.bits}.groupBy {it.digit}.values.flatMap {it.takeLast(SHARED_SAMPLES_PER_DIGIT)}
   prefs.edit().putString("shared_samples",GameDigitFont.encode(kept)).apply()
  }
  private fun pixels(image:Bitmap):IntArray=IntArray(image.width*image.height).also {image.getPixels(it,0,image.width,0,0,image.width,image.height)}
@@ -38,7 +46,7 @@ class GameDigitMemory(context:Context) {
  }
  private fun store(fresh:List<GameDigitFont.Sample>) {
   if(fresh.isEmpty())return
-  val kept=(learned()+fresh).asReversed().distinctBy {it.digit to it.glyph.bits}.asReversed()
+  val kept=trusted(learned()+fresh).asReversed().distinctBy {it.digit to it.glyph.bits}.asReversed()
    .groupBy {it.digit}.values.flatMap {it.takeLast(LOCAL_SAMPLES_PER_DIGIT)}
   prefs.edit().putString("samples",GameDigitFont.encode(kept)).apply()
  }

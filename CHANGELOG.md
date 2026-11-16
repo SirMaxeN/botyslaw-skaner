@@ -1,6 +1,17 @@
 # Change log
 
 
+
+## 1.6.1 (58) — Google Play AAB (2026-11-16, fewer number prompts, "k"/"m" fix, clan tag, compact prompt)
+
+- **"m"/"M" (millions):** OCR misreads of the suffix right after a number ("1.25rn", "1.2IVI", "1.2MI", "16.2|<", "16.2kl") are repaired before parsing; plain numbers made of an "m"/"b" abbreviation's digits plus up to two more (the wide m split into two glyphs) lose to the abbreviation.
+- **Clan tag:** a clan name always ends with [TAG]; a lost opening bracket ("PolskaMoc PL J", "PolskaMoc PL]", "PolskaMocPL]", "PolskaMoc PL") is now read as "PolskaMoc[PL]".
+
+- **"k" read as a digit:** learning from a confirmed number split "16.2k" into 1·6·2·k and could store the k as a 0, after which the game font read 16.2k as 1620 (and shared that sample). Now: no learning from abbreviated labels; learned/shared digit samples must look like their digit to the bundled font (`GameDigitFont.plausible`, 0/54 genuine samples rejected), which also neutralises samples already poisoned; plain numbers made of an abbreviation's digits plus one ("1620"/"162" beside "16.2k") are treated as the same label misread, so the abbreviation wins without a prompt.
+- **Noise and wobble (log: hammers 0 / 8951 / 8950 in all 9 frames):** a lone digit next to a 3+ digit number is dropped; two values that only ever appear together are an OCR wobble the game font may settle.
+- **Compact prompt:** ~330 dp wide, no dimming, placed at the edge away from the field being read, with the field's crop shown in the prompt and a small "Podejrzyj" button.
+- **Diagnostics:** the scan log records per-frame readings and font votes; prompted crops are kept in `files/logs/resource-crops` (last 40).
+
 ## 1.6.0 (57) — Google Play (2026-11-16, resource scan robustness)
 
 - **Tab not switched after a number prompt (after tickets, before shells):** our prompt takes focus from the game; the next tab tap came within milliseconds and the game (Unity) dropped it, then the next counter was read on the wrong screen. Navigation now waits ~0.7 s and for the game to be in front after any prompt, and tab taps (skills/pets/tech) — or any tap shortly after a prompt — are checked on one fresh frame; a clearly different screen starts the existing recovery that taps again.

@@ -29,4 +29,10 @@ class OcrCandidateExtractorTest {
         assertEquals(188L, found.single().value)
         assertEquals(ResourceField.SKILL_COST, found.single().field)
     }
+
+    @Test fun millionsWithTheMMisreadAreStillAbbreviated() {
+        val found = OcrCandidateExtractor.extract(listOf(OcrLine("1.25rn", ScreenBounds(0, 0, 120, 30))), ScanStep.MOUNT_CURRENCY)
+        assertEquals(1_250_000L, found.single().value)
+        assertTrue(found.single().approximate)
+    }
 }

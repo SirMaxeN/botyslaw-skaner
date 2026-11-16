@@ -41,4 +41,18 @@ class WarRosterProofTest {
   assertEquals("Polska_Moc",WarRosterProof.displayName("Polska_Moc"))
   assertEquals("Klan bez tagu",WarRosterProof.displayName("Klan bez tagu"))
  }
+ @org.junit.Test fun clanTagWithoutOpeningBracketIsStillTheTrailingTag() {
+  // The clan name always ends with [TAG]; OCR may lose the "[" (space) and read "]" as a separate "J".
+  assertEquals("PolskaMoc[PL]",WarRosterProof.displayName("PolskaMoc PL J"))
+  assertEquals("PolskaMoc[PL]",WarRosterProof.displayName("PolskaMoc PL]"))
+  assertEquals("PolskaMoc[PL]",WarRosterProof.displayName("PolskaMoc |PL]"))
+  assertEquals("PolskaMoc[PL]",WarRosterProof.displayName("PolskaMoc_PL J"))
+  assertEquals("PolskaMoc[PL]",WarRosterProof.displayName("PolskaMocPL]"))
+  assertEquals("PolskaMoc[PL]",WarRosterProof.displayName("PolskaMoc PL"))
+  assertEquals("PolskaMoc[PL]",WarRosterProof.displayName("PolskaMoc PLJ"))
+  assertEquals("PolskaMOC[PL]",WarRosterProof.displayName("PolskaMOC_PL_"))
+  assertEquals("Wilki Polnocy[ABC]",WarRosterProof.displayName("Wilki Polnocy ABC J"))
+  assertEquals("PolskaMoc[PL]",WarRosterProof.clan("PolskaMoc PL J\nPoziom S+\nŁączna Moc: 42.8b\nCzłonkowie: 50/50"))
+  assertEquals(WarRosterProof.key("PolskaMoc[PL]"),WarRosterProof.key(WarRosterProof.displayName("PolskaMoc PL J")))
+ }
 }
