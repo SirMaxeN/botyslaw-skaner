@@ -45,12 +45,9 @@ object ClanTechCatalog {
         fun fraction(text:String) = ClanTechNodes.level(text)?.takeIf { it.second == e.maxLevel }?.first
         val readings = labels.mapNotNull {labelLevel(index,it)}
         val listed = readings.distinct().singleOrNull() ?: return null
-        val description = window.replace(Regex("\\([^)]*\\)"), "")
-        val values = Regex("(?<![\\d.,])([0-9]+(?:[.,][0-9]+)?)\\s*%")
-            .findAll(description).mapNotNull { it.groupValues[1].replace(',', '.').toDoubleOrNull() }.distinct().toList()
-        val percent = values.singleOrNull()?.let { value ->
-            (value/e.stepPercent).toInt().takeIf { it in 0..e.maxLevel && it*e.stepPercent==value }
-        }
+        val description = currentDescription(window)
+        val values = percentages(description)
+        val percent = levelFromPercent(e, values)
         if(values.isNotEmpty() && percent==null)return null
         val detailed = percent ?: fraction(description)
         // Some panels list only the increase for the next level. In that case use
@@ -58,11 +55,58 @@ object ClanTechCatalog {
         return listed.takeIf { if(detailed!=null)it==detailed else readings.size>=2 }
     }
 
+    /** A verified node can fall back to its popup when the tiny tree label is unreadable. */
+    fun levelFromPopupReads(index: Int, labels: List<String>, windows: List<String>): Int? {
+        val e = entry(index) ?: return null
+        val readings = windows.map { it to percentages(currentDescription(it)) }
+        if (readings.any { (_, values) -> values.isNotEmpty() && levelFromPercent(e, values) == null }) return null
+        val levels = readings.mapNotNull { (window, values) -> levelFromPercent(e, values)?.let { window to it } }
+        val agreed = levels.map { it.second }.distinct().singleOrNull() ?: return null
+        val identified = levels.count { (window, _) -> popupMatches(index, window) }
+        return agreed.takeIf { identified >= 2 && labels.mapNotNull { labelLevel(index, it) }.all { it == agreed } }
+    }
+
+    private fun popupMatches(index: Int, window: String): Boolean {
+        if (index in 10..15) return dayMatches(index, window)
+        val text = eu.komars.forgescanner.platform.normalizeNfd(window.lowercase())
+            .filterNot { it in '\u0300'..'\u036f' }.replace('ł', 'l')
+        val words = when (index) {
+            0 -> listOf("kuci", "ekwip")
+            1 -> listOf("przyzyw", "umiejet")
+            2 -> listOf("ulepsz", "umiejet")
+            3 -> listOf("drzew", "technolog")
+            4 -> listOf("kuzni", "punkt")
+            5 -> listOf("klucz", "loch")
+            6 -> listOf("wykluw", "jaj")
+            7 -> listOf("laczen", "zwierzak")
+            8 -> listOf("przyzyw", "wierzchow")
+            9 -> listOf("aczen", "wierzchow")
+            16 -> listOf("mikstur", "nagrod")
+            17 -> listOf("darowizn", "wyscig")
+            else -> return false
+        }
+        return words.all(text::contains)
+    }
+
+    private fun currentDescription(window: String) = window.replace(Regex("\\([^)]*\\)"), "")
+
+    private fun percentages(text: String): List<Double> = Regex("(?<![\\p{L}\\d.,])([0-9]+(?:[.,][0-9]+)?|[Oo])\\s*%")
+        .findAll(text).mapNotNull { match ->
+            val raw = match.groupValues[1]
+            if (raw.equals("o", ignoreCase = true)) 0.0 else raw.replace(',', '.').toDoubleOrNull()
+        }.distinct().toList()
+
+    private fun levelFromPercent(entry: Entry, values: List<Double>): Int? {
+        val value = values.singleOrNull() ?: return null
+        val level = (value / entry.stepPercent).toInt()
+        return level.takeIf { it in 0..entry.maxLevel && it * entry.stepPercent == value }
+    }
+
     /** Day icons only differ by a digit. Require the same day in the opened description. */
     fun dayMatches(index:Int, window:String):Boolean {
         if(index !in 10..15)return true
         val normalized=window.lowercase().replace('ń','n').replace('ś','s').replace('ó','o')
-        val days=Regex("(?:dzien|dnia|day)\\s*[:.]?\\s*([1-6])(?![0-9])").findAll(normalized)
+        val days=Regex("(?:dzien|dnia|dniu|day)\\s*[:.]?\\s*([1-6])(?![0-9])").findAll(normalized)
             .map {it.groupValues[1].toInt()}.distinct().toList()
         return days.singleOrNull()==index-9
     }

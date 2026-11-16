@@ -58,6 +58,11 @@ internal class WarOverlayChrome(private val context:Context,private val stop:()-
   if(pause!=null)compactRow.addView(pauseIcon,1,LinearLayout.LayoutParams(ScannerIconBar.cell(context,3),ScannerIconBar.cell(context,3)))
   compactRow.visibility=View.GONE;boundaryIcon.visibility=View.GONE
  }
+ fun showCompletion(returnToApp:()->Unit) {
+  controls.removeAllViews()
+  controls.addView(ScannerAppearance.overlayAction(context,"Wróć do aplikacji",action=returnToApp),ScannerAppearance.rowItem(context))
+  controls.addView(ScannerAppearance.overlayAction(context,"Zakończ",action=stop),ScannerAppearance.rowItem(context))
+ }
  fun addListControl(view:View){controls.addView(view,ScannerAppearance.rowItem(context))}
  fun listMode(enabled:Boolean,rewinding:Boolean) {val visibility=if(enabled)View.VISIBLE else View.GONE;val changed=boundaryIcon.visibility!=visibility;boundaryIcon.visibility=visibility;boundaryIcon.contentDescription=if(rewinding)"Lista jest na górze"else"Zatrzymaj listę";if(changed)resize()}
  fun show() {

@@ -21,6 +21,12 @@ class InventoryEndDetectorTest {
         assertEquals(InventoryEndDetector.Status.VISIBLE_END, detector.observe(frame, 40, 1000))
         assertEquals(1L, ScrollSequenceAnalyzer().analyze(listOf(frame), 5, 40).count)
     }
+    @Test fun fullEmptyRowDuringDragConfirmsEndBeforeSnapBack() {
+        val detector = InventoryEndDetector()
+        assertEquals(InventoryEndDetector.Status.NOT_VISIBLE, detector.observe(frame(3), 40, 0, dragInProgress = true))
+        assertEquals(InventoryEndDetector.Status.VISIBLE_END, detector.observe(frame(2), 40, 100, dragInProgress = true))
+    }
+
     @Test fun pausingOnAFullViewportDoesNotMeanTheEnd() {
         val detector = InventoryEndDetector()
         for (time in 0L..2000L step 200) assertEquals(InventoryEndDetector.Status.NOT_VISIBLE, detector.observe(frame(3), 40, time))
@@ -72,7 +78,7 @@ class InventoryEndDetectorTest {
                 if (localY in 8..29 && x % 16 in 4..11) 30 else 255.toByte()
             }
             assertEquals("An ordinary gap is not a list end at phase $offset", InventoryEndDetector.Status.NOT_VISIBLE,
-                detector.observe(GrayScrollFrame(80, 120, data), 40, offset * 100L))
+                detector.observe(GrayScrollFrame(80, 120, data), 40, offset * 100L, dragInProgress = true))
         }
     }
 

@@ -289,6 +289,7 @@ class OverlayController(
         showDialog(AlertDialog.Builder(context).setTitle(title)
             .setItems(candidates.map { "${it.sourceText}  =  ${number.format(it.value)}${if (it.approximate) " ≈" else ""}" }.toTypedArray()) { _, index ->
                 val selected = candidates[index]
+                if (!selected.approximate) teachCounter(target, selected.value)
                 if (setup) {
                     val saved = selected.bounds.run {
                         Rect(left, top, right, bottom).apply {
@@ -343,13 +344,25 @@ class OverlayController(
                     else {
                         show()
                         showDialog(AlertDialog.Builder(context).setTitle("${counter.title}: wybierz wartość")
-                            .setItems(choices.map { "${it.sourceText} = ${number.format(it.value)}" }.toTypedArray()) { _, index -> accept(choices[index]) }
+                            .setItems(choices.map { "${it.sourceText} = ${number.format(it.value)}" }.toTypedArray()) { _, index ->
+                                val chosen = choices[index]
+                                if (eu.komars.forgescanner.model.GameNumberParser.parse(chosen.sourceText)?.abbreviated != true)
+                                    teachCounter(counter, chosen.value)
+                                accept(chosen)
+                            }
                             .setNegativeButton("Wróć", null).create())
                     }
                 }
                 choose(0)
             }, { fail(it.message ?: "Nie udało się odczytać obu wartości.") })
         }
+    }
+
+    private fun teachCounter(target: ScanTarget, value: Long) {
+        val app = context.applicationContext as eu.komars.forgescanner.ScannerApplication
+        if (app.demo) return
+        runCatching { eu.komars.forgescanner.battle.GameDigitMemory.shared?.confirmCounter(target.field.name, value) }
+        runCatching { app.knowledge.syncAsync(force = true) }
     }
 
     private fun acceptNumber(target: ScanTarget, candidate: OcrCandidate) {

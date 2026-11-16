@@ -45,6 +45,8 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
     private var selector: ScreenSelectionWindow? = null
     private var selectedBitmap: Bitmap? = null
     private var dialog: AlertDialog? = null
+    /** Uptime when our last dialog closed: the game (Unity) needs a moment to regain focus before it accepts a tap. */
+    private var dialogClosedAt = 0L
     private var gesture: GestureSession? = null
     private var driver: AutoInventoryDriver? = null
     private var navigator: NavigationCoordinator? = null
@@ -338,6 +340,8 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
             }}
             if (eu.komars.forgescanner.BuildConfig.DEBUG) android.util.Log.d("ScannerStep",
                 "step=${step.name} ms=${android.os.SystemClock.elapsedRealtime() - started} success=${result.isSuccess}")
+            scanLog("step", "step" to step.name, "ok" to result.isSuccess, "ms" to android.os.SystemClock.elapsedRealtime() - started,
+                "value" to result.getOrNull()?.value, "source" to result.getOrNull()?.source?.take(80), "error" to result.exceptionOrNull()?.message)
             complete(result)
         }
         if (step.optional && skipOptional(step)) { finish(Result.success(null)); return }
@@ -345,16 +349,17 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
             navigate(step, token, ::finish); return
         }
         val target = requireNotNull(step.target)
+        eu.komars.forgescanner.battle.GameDigitMemory.shared?.discardCounterCrop(target.field.name)
         counterCache.remove(target)?.let { finish(Result.success(it)); return }
         val bounds = physicalBounds()
         val saved = calibrations.get(target, bounds.width(), bounds.height())
-        if (saved == null) { finish(failure("Ustaw ponownie obszar: ${step.title}.")); return }
+        if (saved == null) { showManualReading(step, target, token, ::finish); return }
         protectedRegion = saved.region
         CaptureIndicator.avoid(saved.region)
         show()
         capture { bitmap ->
             val calibration = calibrations.get(target, bitmap.width, bitmap.height)
-            if (calibration == null) { recycle(bitmap); finish(failure("Ustaw ponownie obszar: ${step.title}.")); return@capture }
+            if (calibration == null) { recycle(bitmap); showManualReading(step, target, token, ::finish); return@capture }
             if (target.isInventory) {
                 val session = gesture
                 if (session == null) { recycle(bitmap); finish(failure("Sterowanie gestami zostało zatrzymane.")); return@capture }
@@ -368,12 +373,12 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
                     (center + 25).coerceAtMost(bitmap.width), calibration.region.bottom)
                 if (!touchShield.pinScrollCorridor(strip)) {
                     driver = null; recycle(bitmap)
-                    finish(failure("Nie można przygotować bezpiecznego przewijania listy.")); return@capture
+                    showManualReading(step, target, token, ::finish); return@capture
                 }
                 driver!!.start(bitmap, target, calibration, session, { token == generation && running }, { hint, count ->
                     if (token == generation) liveLabel?.text = "$hint\nOdczytano: ${NumberFormat.getIntegerInstance(Locale.forLanguageTag("pl-PL")).format(count)}"
                 }) { result ->
-                    if (token == generation && running) { driver = null; touchShield.releaseScrollCorridor(); protectedRegion = null; finish(result.map { it }) }
+                    if (token == generation && running) { driver = null; touchShield.releaseScrollCorridor(); protectedRegion = null; result.fold({ finish(Result.success(it)) }, { showManualReading(step, target, token, ::finish) }) }
                 }
             } else readCounter(step, target, calibration, bitmap, token, ::finish)
         }
@@ -394,7 +399,8 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
 
     private fun readCounter(step: AutoScanStep, target: ScanTarget, calibration: SavedCalibration,
                             bitmap: Bitmap, token: Int, complete: (Result<AutoReading?>) -> Unit, attempt: Int = 0,
-                            screenRepairAttempted: Boolean = false, emptyCompleteBursts: Int = 0) {
+                            screenRepairAttempted: Boolean = false, emptyCompleteBursts: Int = 0,
+                            history: CounterBurstHistory = emptyMap()) {
         // Read both independently marked counters from the same three source
         // frames. A verified cost is reused by the immediately following step.
         val regions = linkedMapOf(target to Rect(calibration.region))
@@ -409,11 +415,12 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
             if (other != null && !Rect.intersects(panelBounds, other.region)) regions[paired] = other.region
         }
         var sourceFrames = 0
+        var accumulated: CounterBurstHistory = history
         CounterBurstReader(ocr, diagnostics = { metrics ->
             sourceFrames = metrics.sourceFrames
             if (eu.komars.forgescanner.BuildConfig.DEBUG) android.util.Log.d("ScannerCounter",
                 "fields=${metrics.fields} frames=${metrics.sourceFrames} passes=${metrics.ocrPasses} ms=${metrics.elapsedMillis}")
-        }).readMany(bitmap, regions, { token == generation && running }) { analyses ->
+        }).readMany(bitmap, regions, { token == generation && running }, prior = history, collected = { accumulated = it }) { analyses ->
             if (token != generation || !running) return@readMany
             fun verified(counter: ScanTarget): AutoReading? {
                 val analysis = analyses[counter] ?: return null
@@ -426,13 +433,18 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
             val analysis = analyses[target] ?: OcrAnalysis(emptyList(), emptyList(), "Brak odczytu tego pola.", true)
             val choices = OcrChoices.unique(analysis.candidates, target.field.isCost).filter { it.field == target.field }
             val emptyBursts = if (sourceFrames == CounterOcrConsensus.FRAME_COUNT && choices.isEmpty()) emptyCompleteBursts + 1 else 0
+            scanLog("counter", "step" to step.name, "attempt" to attempt, "frames" to (accumulated[target]?.first?.size ?: sourceFrames),
+                "choices" to choices.joinToString { it.value.toString() }, "settled" to (reading != null))
             if (reading != null) {
                 complete(Result.success(reading))
-            } else if (attempt == 0) {
-                liveLabel?.text = "${step.title}: ponawiam odczyt zapisanego pola…"
+            } else if (attempt == 0 || attempt < MAX_EXTRA_BURSTS && choices.isNotEmpty()) {
+                // Frames disagree: take another burst of fresh frames and judge all of them together
+                // (up to 3 bursts = 9 frames) before asking the player.
+                liveLabel?.text = "${step.title}: klatki się różnią — zbieram kolejne (${attempt + 2}/${MAX_EXTRA_BURSTS + 1})…"
                 handler.postDelayed({
                     if (token == generation && running) capture { fresh ->
-                        readCounter(step, target, calibration, fresh, token, complete, attempt + 1, screenRepairAttempted, emptyBursts)
+                        readCounter(step, target, calibration, fresh, token, complete, attempt + 1, screenRepairAttempted, emptyBursts,
+                            history = if (choices.isNotEmpty()) accumulated else emptyMap())
                     }
                 }, 100)
             } else if (CriticalReadRecoveryPolicy.eligible(emptyBursts, choices.size, sourceFrames,
@@ -486,15 +498,15 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
         val remembered=if(!app.demo && target.field.isCost) eu.komars.forgescanner.model.ConfirmedCostPolicy.choose(
             eu.komars.forgescanner.model.ConfirmedCostMemory(context).get(app.mobile.name.orEmpty(),target.field),choices) else null
         if(remembered!=null) {complete(Result.success(AutoReading(remembered.value,source="Bieżący odczyt zgodny z zatwierdzonym kosztem: ${remembered.sourceText}")));return}
-        // The same set of OCR readings was already resolved by the player: reuse that choice instead of asking again.
+        // Only costs are persistent enough to reuse a previous choice between the same OCR alternatives.
         val choicePrefs=context.getSharedPreferences("counter_choices_v1",0)
         val choiceKey="${target.name}:${choices.map { it.value }.sorted().joinToString(",")}"
-        val rememberedChoice=if(choices.size>1&&!app.demo)choicePrefs.getLong(choiceKey,-1L).takeIf { v -> choices.any { it.value==v } } else null
+        val rememberedChoice=if(target.field.isCost&&choices.size>1&&!app.demo)choicePrefs.getLong(choiceKey,-1L).takeIf { v -> choices.any { it.value==v } } else null
         if(rememberedChoice!=null) {
             val chosen=choices.first { it.value==rememberedChoice }
             complete(Result.success(AutoReading(chosen.value,approximate=chosen.approximate,source="Zapamiętany wybór gracza: ${chosen.sourceText}")));return
         }
-        liveLabel?.text = if (choices.isEmpty()) "Ponów odczyt tego samego pola lub popraw zaznaczenie."
+        liveLabel?.text = if (choices.isEmpty()) "Ponów odczyt lub wpisz wartość ręcznie."
             else "Wybierz liczbę widoczną w grze. Zaznaczenie pozostaje bez zmian."
         var prompt: AlertDialog? = null
         fun activePrompt() = current() && dialog === prompt
@@ -508,10 +520,10 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
                 readCounter(step, target, calibration, fresh, token, complete, attempt = 1)
             }
         }
-        fun redraw() {
+        fun enterManually() {
             if (!activePrompt()) return
             dismissPrompt()
-            complete(failure("${step.title}: popraw zaznaczenie tylko tego pola."))
+            showManualReading(step, target, token, complete)
         }
         fun cancelRead() {
             if (!activePrompt()) return
@@ -535,9 +547,8 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
                     // Learn right away: remember this choice for the same readings, teach the game font the digits of
                     // this crop and share the learned digits with every phone (/mobile/learning), not only after review.
                     if (!app.demo) {
-                        if (choices.size > 1) choicePrefs.edit().putLong(choiceKey, chosen.value).apply()
-                        runCatching { eu.komars.forgescanner.battle.GameDigitMemory.shared?.confirmCounter(target.field.name, chosen.value) }
-                        runCatching { app.knowledge.syncAsync(force = true) }
+                        if (target.field.isCost && choices.size > 1) choicePrefs.edit().putLong(choiceKey, chosen.value).apply()
+                        if (!chosen.approximate) learnCounter(target, chosen.value)
                     }
                     complete(Result.success(AutoReading(chosen.value, approximate = chosen.approximate,
                         source = "Potwierdzono ręcznie: ${chosen.sourceText}")))
@@ -545,12 +556,54 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
             }
         }
         val alert = builder.setPositiveButton("Odczytaj ponownie") { _, _ -> retry() }
-            .setNeutralButton("Popraw pole") { _, _ -> redraw() }
+            .setNeutralButton("Wpisz ręcznie") { _, _ -> enterManually() }
             .setNegativeButton("Zatrzymaj") { _, _ -> cancelRead() }
             .create()
         prompt = alert
         alert.setOnCancelListener { cancelRead() }
         showDialog(alert,peek=true)
+    }
+
+    private fun learnCounter(target: ScanTarget, value: Long) {
+        val app = context.applicationContext as ScannerApplication
+        if (app.demo || target.isInventory) return
+        runCatching { eu.komars.forgescanner.battle.GameDigitMemory.shared?.confirmCounter(target.field.name, value) }
+        runCatching { app.knowledge.syncAsync(force = true) }
+    }
+
+    private fun showManualReading(step: AutoScanStep, target: ScanTarget, token: Int,
+                                  complete: (Result<AutoReading?>) -> Unit) {
+        val input = android.widget.EditText(context).apply {
+            hint = if (target.field.isCost) "Koszt przyzwania" else "Wartość, również 0"
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            setSingleLine(true)
+        }
+        val form = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(8), dp(16), dp(8))
+            addView(text(step.title, 16f, bold = true))
+            if (target.isInventory) addView(text("Wpisz liczbę bez ${target.baseCount} bazowych pozycji.", 14f))
+            addView(input)
+        }
+        val alert = AlertDialog.Builder(context).setView(form)
+            .setPositiveButton("Zapisz i kontynuuj", null)
+            .setNegativeButton("Zatrzymaj") { _, _ -> stop("Zatrzymano skan.") }
+            .create()
+        alert.setOnCancelListener { if (token == generation && running) stop("Zatrzymano skan.") }
+        showDialog(alert, peek = true)
+        alert.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            if (token != generation || !running || activeStep != step || dialog !== alert) return@setOnClickListener
+            val value = input.text.toString().trim().toLongOrNull()
+            val minimum = if (target.field.isCost) 1L else 0L
+            if (value == null || value !in minimum..eu.komars.forgescanner.model.ScanSession.MAX_VALUE) {
+                input.error = if (target.field.isCost) "Wpisz dodatni koszt." else "Wpisz liczbę całkowitą od 0 do 9 bilionów."
+                return@setOnClickListener
+            }
+            alert.dismiss()
+            if (dialog === alert) dialog = null
+            learnCounter(target, value)
+            complete(Result.success(AutoReading(value, source = "Wpisano ręcznie")))
+        }
     }
 
     /** Normal route: publish the step, render the label, tap its saved coordinate once, then settle. */
@@ -568,15 +621,54 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
                 }
                 // The state is already published by AutoScanRunner. Yield one UI frame
                 // so the displayed label can catch up before the confirmed tap begins.
-                root?.postOnAnimation { handler.post(action) } ?: handler.post(action)
+                // Right after one of our dialogs the game is still regaining focus and drops a tap:
+                // wait for it (bug 2026-11-16: the pets tab was not opened after a manual choice).
+                val sinceDialog = android.os.SystemClock.uptimeMillis() - dialogClosedAt
+                if (sinceDialog < AFTER_DIALOG_SETTLE_MS) {
+                    liveLabel?.text = "Czekam, aż gra wróci po oknie wyboru…"
+                    awaitGameFocus(token, AFTER_DIALOG_SETTLE_MS - sinceDialog) { root?.postOnAnimation { handler.post(action) } ?: handler.post(action) }
+                } else root?.postOnAnimation { handler.post(action) } ?: handler.post(action)
             }
             override fun cancel() { tapEpoch++ }
         }, SavedNavigationRunner.Scheduler { delay, action ->
             val task = Runnable(action); handler.postDelayed(task, delay); { handler.removeCallbacks(task) }
         })
         savedNavigator = route
+        val afterDialog = android.os.SystemClock.uptimeMillis() - dialogClosedAt < VERIFY_AFTER_DIALOG_MS
         route.start(step) { result ->
-            if (token == generation && running) { savedNavigator = null; complete(result.map { null }) }
+            if (token == generation && running) {
+                savedNavigator = null
+                if (result.isSuccess && (step in VERIFIED_TABS || afterDialog)) verifyDestination(step, token, complete)
+                else complete(result.map { null })
+            }
+        }
+    }
+
+    /** Waits [minimum] ms, then up to 2 s more until the accessibility service sees the game in front again. */
+    private fun awaitGameFocus(token: Int, minimum: Long, next: () -> Unit) {
+        val started = android.os.SystemClock.uptimeMillis()
+        fun poll() {
+            if (token != generation || !running) return
+            if (GestureConnection.foregroundGame || android.os.SystemClock.uptimeMillis() - started > minimum + 2000) next()
+            else handler.postDelayed(::poll, 120)
+        }
+        handler.postDelayed(::poll, minimum.coerceAtLeast(0))
+    }
+
+    /**
+     * A tab tap (or any tap right after a dialog) is checked on one fresh frame: a clearly different screen
+     * starts the screen-aware recovery (which taps again); an unrecognised frame keeps the old behaviour.
+     */
+    private fun verifyDestination(step: AutoScanStep, token: Int, complete: (Result<AutoReading?>) -> Unit) {
+        observeNavigation(token) { observed ->
+            if (token != generation || !running) return@observeNavigation
+            val kind = observed.getOrNull()?.kind
+            scanLog("verify-destination", "step" to step.name, "screen" to kind?.name)
+            if (kind == null || kind == GameScreenKind.UNKNOWN || NavigationScreenPolicy.accepts(step, kind)) complete(Result.success(null))
+            else {
+                liveLabel?.text = "${step.title}: ekran się nie zmienił — ponawiam przejście…"
+                recoverNavigation(step, token, complete)
+            }
         }
     }
 
@@ -945,6 +1037,24 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
     }.create())
     private var previewReturn:View?=null
     private fun removePreviewReturn() {previewReturn?.let {runCatching {manager.removeViewImmediate(it)}};previewReturn=null}
+    /** Local diagnostic log of the resource scan (files/logs/resource-scan.jsonl, ~1 MB, kept on the phone). */
+    private fun scanLog(event: String, vararg details: Pair<String, Any?>) {
+        runCatching {
+            val dir = java.io.File(context.getExternalFilesDir(null) ?: return, "logs").apply { mkdirs() }
+            val file = java.io.File(dir, "resource-scan.jsonl")
+            if (file.length() > 1_000_000) file.renameTo(java.io.File(dir, "resource-scan.old.jsonl"))
+            val line = org.json.JSONObject().put("at", java.time.Instant.now().toString()).put("event", event)
+            details.forEach { (key, value) -> line.put(key, value ?: org.json.JSONObject.NULL) }
+            file.appendText(line.toString() + "\n")
+        }
+    }
+    private companion object {
+        const val AFTER_DIALOG_SETTLE_MS = 700L
+        /** Extra bursts of three fresh frames before a disagreement is shown to the player. */
+        const val MAX_EXTRA_BURSTS = 2
+        const val VERIFY_AFTER_DIALOG_MS = 6000L
+        val VERIFIED_TABS = setOf(AutoScanStep.OPEN_SKILLS, AutoScanStep.OPEN_PETS, AutoScanStep.OPEN_TECH)
+    }
     private fun showDialog(alert: AlertDialog,peek:Boolean=false) {
         removePreviewReturn();dialog?.dismiss();dialog=alert
         if(peek) {
@@ -960,7 +1070,10 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
                 previewReturn=restore;manager.addView(restore,params)
             })
             alert.setCustomTitle(title)
-            alert.setOnDismissListener {removePreviewReturn();root?.visibility=View.VISIBLE}
+        }
+        alert.setOnDismissListener {
+            if(peek){removePreviewReturn();root?.visibility=View.VISIBLE}
+            dialogClosedAt=android.os.SystemClock.uptimeMillis()
         }
         alert.window?.setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY);alert.show()
     }

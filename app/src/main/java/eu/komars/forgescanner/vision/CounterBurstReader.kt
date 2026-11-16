@@ -9,6 +9,9 @@ import eu.komars.forgescanner.capture.CaptureConnection
 import eu.komars.forgescanner.capture.FrameCallback
 import eu.komars.forgescanner.model.ScanTarget
 
+/** Frames and game-font votes of earlier bursts for the same counters; a retry adds to them instead of starting over. */
+typealias CounterBurstHistory = Map<ScanTarget, Pair<List<OcrAnalysis>, List<Long?>>>
+
 /** Counts/timing only; resource values and screenshot pixels are deliberately excluded. */
 data class CounterReadMetrics(val fields: Int, val sourceFrames: Int, val ocrPasses: Int, val elapsedMillis: Long)
 
@@ -27,12 +30,12 @@ class CounterBurstReader(
 
     /** Takes ownership of first. Returned analyses retain independent per-field source-frame votes. */
     fun readMany(first: Bitmap, regions: Map<ScanTarget, Rect>, isActive: () -> Boolean,
+        prior: CounterBurstHistory = emptyMap(), collected: (CounterBurstHistory) -> Unit = {},
         complete: (Map<ScanTarget, OcrAnalysis>) -> Unit) {
         val width = first.width; val height = first.height
         val crops = regions.mapValues { Rect(it.value) }
         val readings = crops.keys.associateWith { mutableListOf<OcrAnalysis>() }
         val fontVotes = crops.keys.associateWith { mutableListOf<Long?>() }
-        val lastPixels = mutableMapOf<ScanTarget, Triple<Int, Int, IntArray>>()
         val started = SystemClock.elapsedRealtime()
         var passes = 0
         var sourceFrames = 0
@@ -46,14 +49,15 @@ class CounterBurstReader(
             if (isActive()) {
                 runCatching { diagnostics(CounterReadMetrics(crops.size, sourceFrames,
                     passes, SystemClock.elapsedRealtime() - started)) }
+                // Earlier bursts of the same counter count too: more frames, more certainty.
+                val all = crops.keys.associateWith { target ->
+                    val before = prior[target]
+                    (before?.first.orEmpty() + readings.getValue(target)) to (before?.second.orEmpty() + fontVotes.getValue(target))
+                }
+                if (error == null) runCatching { collected(all) }
                 complete(crops.keys.associateWith { target ->
                     if (error != null) OcrAnalysis(emptyList(), emptyList(), error, true)
-                    else CounterOcrConsensus.combine(readings.getValue(target), target, fontVotes.getValue(target)).also { result ->
-                        // Three agreeing OCR frames teach the font the digits it could not read yet.
-                        val value = result.candidates.firstOrNull()?.value
-                        if (!result.requiresConfirmation && value != null && fontVotes.getValue(target).any { it != value })
-                            lastPixels[target]?.let { (w, h, p) -> runCatching { font?.learnCounter(w, h, p, value) } }
-                    }
+                    else all.getValue(target).let { (frames, votes) -> CounterOcrConsensus.combine(frames, target, votes) }
                 })
             }
         }
@@ -77,7 +81,6 @@ class CounterBurstReader(
                 for ((target, rect) in crops) {
                     val r = Rect(rect); if (!r.intersect(0, 0, bitmap.width, bitmap.height) || r.width() < 8 || r.height() < 6) { fontVotes.getValue(target) += null; continue }
                     val pixels = IntArray(r.width() * r.height()); bitmap.getPixels(pixels, 0, r.width(), r.left, r.top, r.width(), r.height())
-                    lastPixels[target] = Triple(r.width(), r.height(), pixels)
                     font?.rememberCounterCrop(target.field.name, r.width(), r.height(), pixels)
                     fontVotes.getValue(target) += runCatching { font?.readCounter(r.width(), r.height(), pixels) }.getOrNull()
                 }

@@ -5,7 +5,8 @@ import kotlin.math.abs
 
 /** Structural proposals only. Artwork is not classified and no proposal authorizes a tap. */
 class BattleSetupGeometry(private val width:Int, private val height:Int, private val pixels:IntArray) {
-    data class Layout(val regions:Map<String,PixelRegion>,val profile:Boolean,val panel:PixelRegion?=null)
+    data class Layout(val regions:Map<String,PixelRegion>,val profile:Boolean,val panel:PixelRegion?=null,
+        val needsHeaderProof:Boolean=false)
     private data class Part(val box:PixelRegion,val area:Int)
     private fun r(c:Int)=c ushr 16 and 255
     private fun g(c:Int)=c ushr 8 and 255
@@ -47,20 +48,9 @@ class BattleSetupGeometry(private val width:Int, private val height:Int, private
             .filter { row -> row.size==5 && row.zipWithNext().all { (a,b) -> b.left>a.left+width*.08 && b.left-a.left<width*.22 } }
         val topRow=groups.sortedBy { it.minOf { q -> q.top } }.firstOrNull { row -> panel==null ||
             row.first().top in (panel.top+panel.width*.43).toInt()..(panel.top+panel.width*.85).toInt() }
+        val first=topRow?.let { weaponBelow(it,cards) }
+            ?: panel?.let { weaponBelowPreview(it,cards) }
             ?: return Layout(emptyMap(),false,panel)
-        fun median(values:List<Int>)=values.sorted()[values.size/2]
-        val pitch=median(topRow.zipWithNext().map { (a,b) -> b.left-a.left })
-        if(pitch<width*.09 || pitch>width*.22) return Layout(emptyMap(),false,panel)
-        val slotWidth=(pitch*.84).toInt()
-        val slotLeft=median(topRow.mapIndexed { i,q -> q.left-i*pitch })
-        val rowBottom=median(topRow.map { it.top })+slotWidth
-        val below=cards.filter { q -> q.top>rowBottom && q.top-rowBottom<width*.10 &&
-            (0..2).any { col -> abs(q.left-(slotLeft+col*pitch))<pitch*.22 } }
-        val lower=below.map { anchor -> below.filter { abs(it.top-anchor.top)<width*.03 } }
-            .filter { row -> row.size>=2 && row.any { abs(it.left-slotLeft)<pitch*.22 } }
-            .minByOrNull { it.minOf { q -> q.top } } ?: return Layout(emptyMap(),false,panel)
-        val lowerTop=median(lower.map { it.top })
-        val first=PixelRegion(slotLeft,lowerTop,slotLeft+slotWidth,lowerTop+slotWidth)
         if(panel==null) {
             // A home-screen i must be a small isolated black disk on the light equipment panel.
             val candidates=components { c -> r(c)<40 && g(c)<40 && b(c)<40 }.filter { part ->
@@ -71,6 +61,24 @@ class BattleSetupGeometry(private val width:Int, private val height:Int, private
             }
             return Layout(candidates.singleOrNull()?.box?.let { mapOf("open" to expand(it,width*.015)) } ?: emptyMap(),false)
         }
+        return profileFields(panel,first)
+    }
+
+    /** Geometry fallback for a foreground card whose animated preview or equipment is unreadable.
+     * Callers must corroborate the close control and the actual stats header before tapping fields.
+     */
+    fun profileCandidate(panel:PixelRegion):Layout? {
+        val pw=panel.width
+        if(panel.left<0 || panel.right>width || panel.top<0 || panel.bottom>height ||
+            pw<width*.75 || panel.height<pw*1.25 ||
+            abs(panel.left+panel.right-width)>width*.11) return null
+        val left=panel.left+(pw*.104).toInt()
+        val top=panel.top+(pw*.79).toInt()
+        val size=(pw*.138).toInt()
+        return profileFields(panel,PixelRegion(left,top,left+size,top+size)).copy(needsHeaderProof=true)
+    }
+
+    private fun profileFields(panel:PixelRegion,first:PixelRegion):Layout {
         val left=panel.left; val top=panel.top; val pw=panel.width
         val regions=linkedMapOf<String,PixelRegion>()
         regions["weapon"]=first
@@ -98,6 +106,51 @@ class BattleSetupGeometry(private val width:Int, private val height:Int, private
         if(bottom-bonusTop>pw*.09) regions["bonuses"]=box(left+pw*.08,bonusTop,left+pw*.94,bottom)
         return Layout(regions,true,panel)
     }
+    private fun median(values:List<Int>)=values.sorted()[values.size/2]
+
+    private fun weaponBelow(topRow:List<PixelRegion>,cards:List<PixelRegion>):PixelRegion? {
+        val pitch=median(topRow.zipWithNext().map { (a,b) -> b.left-a.left })
+        if(pitch<width*.09 || pitch>width*.22) return null
+        val size=(pitch*.84).toInt()
+        val left=median(topRow.mapIndexed { i,q -> q.left-i*pitch })
+        val bottom=median(topRow.map { it.top })+size
+        val below=cards.filter { q -> q.top>bottom && q.top-bottom<width*.10 &&
+            (0..2).any { col -> abs(q.left-(left+col*pitch))<pitch*.22 } }
+        val lower=below.map { anchor -> below.filter { abs(it.top-anchor.top)<width*.03 } }
+            .filter { row -> row.size>=2 && row.any { abs(it.left-left)<pitch*.22 } }
+            .minByOrNull { it.minOf { q -> q.top } } ?:return null
+        val top=median(lower.map { it.top })
+        return PixelRegion(left,top,left+size,top+size)
+    }
+
+    /** Skins and badges can obscure the top row. Confirm the battle preview and aligned lower slots. */
+    private fun weaponBelowPreview(panel:PixelRegion,cards:List<PixelRegion>):PixelRegion? {
+        val pw=panel.width
+        val probeX=listOf(.20,.34,.50,.66,.81,.90).map {panel.left+(pw*it).toInt()}
+        val start=panel.top+(pw*.20).toInt()
+        val end=minOf(panel.bottom,panel.top+(pw*.65).toInt())
+        fun bands(matches:(Int)->Boolean)= (start until end).filter { y ->
+            probeX.count {x->matches(pixels[y*width+x])}>=2
+        }
+        val grass=bands {c->g(c)>105&&g(c)>r(c)+32&&g(c)>b(c)+45}
+        val road=bands {c->r(c)>140&&g(c)>85&&r(c)>g(c)+20&&g(c)>b(c)+20}
+        if(road.size<pw*.06||grass.count {it<road.first()}<pw*.04)return null
+        val lowerGrass=grass.filter {it>road.last()}
+        if(lowerGrass.size<pw*.04)return null
+        val bottom=lowerGrass.last()
+        val pitch=pw*.163
+        val left=panel.left+pw*.105
+        val below=cards.filter { it.top in (bottom+pw*.16).toInt()..(bottom+pw*.32).toInt() &&
+            it.width in (pw*.10).toInt()..(pw*.17).toInt() &&
+            it.height in (pw*.10).toInt()..(pw*.18).toInt() }
+        val first=below.filter {abs(it.left-left)<pitch*.26}.firstOrNull {q->
+            below.any {other->abs(other.top-q.top)<pw*.036&&
+                (1..2).any {col->abs(other.left-q.left-col*pitch)<pitch*.22}}
+        } ?:return null
+        val slotSize=(pitch*.84).toInt()
+        return PixelRegion(first.left,first.top,first.left+slotSize,first.top+slotSize)
+    }
+
     private fun whiteGlyph(q:PixelRegion):Boolean {
         var count=0
         for(y in q.top until q.bottom) for(x in q.left until q.right) if(r(pixels[y*width+x])>180 && g(pixels[y*width+x])>180 && b(pixels[y*width+x])>180) count++

@@ -25,7 +25,7 @@ class BattleOverlayDialogs(private val context:Context,private val onMinimized:(
     private var externalSaved:((JSONObject)->Unit)?=null
     init { if(resetSessionOnCreate)resetOpponentSession() }
     private var externalCancelled:(()->Unit)?=null
-    /** [onCancelled] (optional) runs when the player leaves the editor with "Wróć do gry" without saving. */
+    /** [onCancelled] (optional) resumes the roster scan when the player skips this profile. */
     fun reviewExternal(value:JSONObject,onCancelled:(()->Unit)?=null,onSaved:(JSONObject)->Unit) {externalDraft=value;externalSaved=onSaved;externalCancelled=onCancelled;review("external") {}}
     fun resetOpponentSession() { opponent=null;opponentDraft=null;prefs.edit().remove("opponent").remove("draft_opponent").remove("hasCompletedSimulation").apply() }
     fun clearOpponentDraft() { opponentDraft=null }
@@ -149,6 +149,11 @@ class BattleOverlayDialogs(private val context:Context,private val onMinimized:(
     fun choose(actions:List<Pair<String,()->Unit>>) {
         show(AlertDialog.Builder(dialogContext).setTitle("Symulator walki").setItems(actions.map { it.first }.toTypedArray()) { _,index -> actions[index].second() }.create())
     }
+    fun chooseProfile(actions:List<Pair<CharSequence,()->Unit>>) {
+        show(AlertDialog.Builder(dialogContext).setTitle("Profile · sprawdź / popraw")
+            .setItems(actions.map {it.first}.toTypedArray()) {_,index -> actions[index].second()}
+            .create())
+    }
     fun review(side:String,compact:Boolean=false,onSaved:()->Unit) {
         val o=draft(side) ?: saved(side)
         if(o==null) { Toast.makeText(context,"Najpierw zeskanuj postać",Toast.LENGTH_SHORT).show();return }
@@ -251,7 +256,7 @@ class BattleOverlayDialogs(private val context:Context,private val onMinimized:(
             for(i in 0 until body.childCount) if(body.getChildAt(i) !in keep) body.getChildAt(i).visibility=android.view.View.GONE
         }
         val alert=AlertDialog.Builder(dialogContext).setTitle(if(compact) "Uzupełnij brakujący odczyt" else if(side=="self") "Moja postać" else "Przeciwnik")
-            .setView(editorContent(scroll)).setNeutralButton("Zminimalizuj",null).setPositiveButton(if(side=="external")"Zapisz profil"else if(side=="self") "Zapisz" else "Użyj do walki",null).setNegativeButton("Wróć do gry",null).create()
+            .setView(editorContent(scroll)).setNeutralButton("Zminimalizuj",null).setPositiveButton(if(side=="external")"Zapisz profil"else if(side=="self") "Zapisz" else "Użyj do walki",null).setNegativeButton(if(side=="external"&&externalCancelled!=null)"Pomiń gracza"else"Wróć do gry",null).create()
         show(alert)
         if(side=="external"&&externalCancelled!=null)alert.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener {
             val callback=externalCancelled;externalCancelled=null;externalSaved=null;externalDraft=null;hide();callback?.invoke()

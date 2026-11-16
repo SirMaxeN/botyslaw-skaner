@@ -4,6 +4,9 @@ package eu.komars.forgescanner.vision
 object CounterDigitMask {
     fun isInk(red: Int, green: Int, blue: Int): Boolean {
         val luminance = (red * 299 + green * 587 + blue * 114) / 1000
-        return luminance > 200 || (red >= 145 && red - green >= 45 && red - blue >= 30)
+        return luminance > 200 || isRedInk(red, green, blue)
     }
+
+    fun isRedInk(red: Int, green: Int, blue: Int): Boolean =
+        red >= 145 && red - green >= 45 && red - blue >= 30
 }

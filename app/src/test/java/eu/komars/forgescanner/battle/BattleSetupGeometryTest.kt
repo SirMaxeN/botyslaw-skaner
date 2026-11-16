@@ -31,6 +31,53 @@ class BattleSetupGeometryTest {
         assertTrue(result.regions.getValue("bonuses").bottom<520)
         assertFalse(result.regions.containsKey("open"))
     }
+    @Test fun profileWithCoveredUpperEquipmentUsesThePreviewAndLowerRow() {
+        val pixels=IntArray(w*h) {0xff111111.toInt()}
+        fill(pixels,12,70,348,610,0xff44495c.toInt())
+        fill(pixels,33,150,320,186,0xff60cc23.toInt())
+        fill(pixels,33,186,320,220,0xffd69954.toInt())
+        fill(pixels,33,220,320,253,0xff60cc23.toInt())
+        fill(pixels,278,274,322,316,0xffb08484.toInt())
+        for(i in 0..2) fill(pixels,47+i*55,330,91+i*55,374,0xffb08484.toInt())
+        val found=BattleSetupGeometry(w,h,pixels).detect()
+        assertTrue(found.profile)
+        assertEquals(47,found.regions.getValue("weapon").left)
+        assertEquals(330,found.regions.getValue("weapon").top)
+        fill(pixels,33,150,320,253,0xff44495c.toInt())
+        assertFalse(BattleSetupGeometry(w,h,pixels).detect().profile)
+    }
+
+    @Test fun suppliedWarProfileRecognizesItsWeaponAndForegroundClose() {
+        val path=System.getenv("BATTLE_WAR_PROFILE")
+        assumeTrue("Optional wartime profile screenshot",path!=null)
+        val frame=readFrame(path!!)
+        val (width,height,pixels)=frame
+        val found=BattleSetupGeometry(width,height,pixels).detect()
+        assertTrue("Player profile misclassified: ${found.panel}",found.profile)
+        val weapon=found.regions.getValue("weapon")
+        assertTrue(weapon.left in 60..76&&weapon.top in 509..535)
+        val card=requireNotNull(found.panel)
+        val expected=eu.komars.forgescanner.model.PixelRegion(208,card.bottom-32,272,card.bottom+32)
+        val close=eu.komars.forgescanner.model.CloseButtonPixelDetector().detect(width,height,pixels,expected)
+        assertNotNull(close)
+        assertTrue(close!!.top in 870..903)
+        // The frame arriving from Android may have an animation over the preview,
+        // or too few card contours to confirm the equipment row.
+        val obscured=pixels.copyOf()
+        val background=pixels[250*width+card.left+8]
+        for(y in card.top+90..card.top+410) {
+            java.util.Arrays.fill(obscured,y*width+card.left+2,y*width+card.right-2,background)
+        }
+        val geometry=BattleSetupGeometry(width,height,obscured)
+        val unreadable=geometry.detect()
+        assertFalse(unreadable.profile)
+        val candidate=requireNotNull(unreadable.panel?.let(geometry::profileCandidate))
+        assertTrue(candidate.needsHeaderProof)
+        assertTrue(candidate.regions.getValue("header").let {it.left<300&&it.top<218&&it.right>417&&it.bottom>266})
+        assertTrue(candidate.regions.getValue("weapon").let {it.left in 65..73&&it.top in 515..528})
+        assertNull(geometry.profileCandidate(eu.komars.forgescanner.model.PixelRegion(24,650,456,760)))
+    }
+
     private fun info(p:IntArray,cx:Int,cy:Int) {
         for(y in cy-5..cy+5) for(x in cx-5..cx+5) if((x-cx)*(x-cx)+(y-cy)*(y-cy)<=25) p[y*w+x]=0xff000000.toInt()
         fill(p,cx,cy-3,cx+1,cy-2,0xffffffff.toInt());fill(p,cx,cy-1,cx+1,cy+3,0xffffffff.toInt())

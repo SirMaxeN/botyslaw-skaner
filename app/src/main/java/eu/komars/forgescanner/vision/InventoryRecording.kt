@@ -30,6 +30,7 @@ class InventoryRecording(
     private val diagnostic: (ScrollAnalysis) -> Unit = {},
     private val countProgress: (Long) -> Unit = {},
     private val endObservation: (InventoryEndDetector.Status) -> Unit = {},
+    private val dragInProgress: () -> Boolean = { false },
     private val sourceFrameTimestamp: (Long) -> Unit = {}
 ) {
     private val handler = Handler(Looper.getMainLooper())
@@ -122,9 +123,10 @@ class InventoryRecording(
         val now = SystemClock.uptimeMillis()
         if (endCheckBusy || now - lastEndCheckAt < 100) return
         endCheckBusy = true; lastEndCheckAt = now
+        val duringDrag = dragInProgress()
         END_WORKER.execute {
             val began = if (BuildConfig.DEBUG) SystemClock.elapsedRealtimeNanos() else 0L
-            val status = endDetector.observe(observation, sampledRowHeight, now, calibration.columns)
+            val status = endDetector.observe(observation, sampledRowHeight, now, calibration.columns, duringDrag)
             if (BuildConfig.DEBUG && SystemClock.elapsedRealtimeNanos() - began > 20_000_000L) {
                 Log.d(PERF_TAG, "slowEndCheckMs=${(SystemClock.elapsedRealtimeNanos() - began) / 1_000_000}")
             }
@@ -140,7 +142,7 @@ class InventoryRecording(
                     InventoryEndDetector.Status.CHECKING -> guidance("Lista mieści się? Nie przewijaj — sprawdzam.")
                     InventoryEndDetector.Status.VISIBLE_END -> {
                         guidance("Widoczny koniec listy — liczę.")
-                        stop()
+                        if (!duringDrag) stop()
                     }
                     else -> Unit
                 }

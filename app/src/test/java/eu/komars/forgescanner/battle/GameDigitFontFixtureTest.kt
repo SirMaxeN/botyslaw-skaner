@@ -44,6 +44,16 @@ class GameDigitFontFixtureTest {
   val (iw,_,pixels)=image(label.file);val w=label.r-label.l;val h=label.b-label.t
   return Triple(w,h,IntArray(w*h){i->pixels[(label.t+i/w)*iw+label.l+i%w]})
  }
+ @Test fun hammerDigitsStillMatchAfterChangingFromWhiteToRed() {
+  assumeTrue(root!=null)
+  val label=counters.first().copy(l=515)
+  val (w,h,p)=crop(label)
+  val samples=GameDigitFont.decode(File("src/main/assets/game_digits_v1.txt").readText())
+  val red=p.map { c->
+   if(minOf(c ushr 16 and 255,c ushr 8 and 255,c and 255)>=205)0xffe54250.toInt() else c
+  }.toIntArray()
+  assertEquals(label.value.toLong(),GameDigitFont.readCounterShape(w,h,red,samples))
+ }
  @Test fun realLabelsSegmentAndReadLeavingEachScreenshotOut() {
   assumeTrue(root!=null)
   val report=StringBuilder()

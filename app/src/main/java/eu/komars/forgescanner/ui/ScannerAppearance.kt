@@ -51,6 +51,14 @@ object ScannerAppearance {
     fun body(context:Context,text:String)=TextView(context).apply {
         this.text=text;textSize=12f;setTextColor(FOREGROUND);setPadding(0,dp(context,2),0,dp(context,6))
     }
+    fun profileStatusLabel(label:String,complete:Boolean):CharSequence {
+        val status=if(complete)"✓ $label" else "! $label"
+        return android.text.SpannableString(status).apply {
+            setSpan(android.text.style.ForegroundColorSpan(if(complete)SUCCESS else DANGER_TEXT),
+                0,length,android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+    }
+
     /** The hands-off warning shown by every automatic scan. */
     fun handsOffWarning(context:Context)=TextView(context).apply {
         text="NIE DOTYKAJ EKRANU\nTRWA AUTOMATYCZNY ODCZYT";textSize=12f;gravity=Gravity.CENTER;setTextColor(WARNING);setTypeface(typeface,Typeface.BOLD)

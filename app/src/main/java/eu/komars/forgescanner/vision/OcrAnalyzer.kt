@@ -110,6 +110,7 @@ class OcrAnalyzer : AutoCloseable {
         val variants = if (verification)
             listOf(CounterVariant.ORIGINAL, CounterVariant.WHITE_DIGITS, CounterVariant.CONTRAST, CounterVariant.INVERSE)
         else listOf(CounterVariant.ORIGINAL, CounterVariant.CONTRAST, CounterVariant.INVERSE, CounterVariant.WHITE_DIGITS)
+        val passes = if (ScanTarget.HAMMERS in regions) variants + CounterVariant.RED_DIGITS else variants
         val readings = regions.keys.associateWith { mutableListOf<OcrAnalysis>() }
         var completed = false
         fun finish(error: String? = null) {
@@ -127,7 +128,7 @@ class OcrAnalyzer : AutoCloseable {
         }
         fun read(index: Int) {
             if (closed.get()) { finish("Skaner jest zamknięty."); return }
-            val rendered = try { renderCounterVariant(strip, CounterPass(0, strip.height, variants[index])) }
+            val rendered = try { renderCounterVariant(strip, CounterPass(0, strip.height, passes[index])) }
             catch (_: Exception) { finish("Nie można przygotować obrazu licznika."); return }
             fun accept(lines: List<OcrLine>, error: String?) {
                 if (rendered.first !== strip && !rendered.first.isRecycled) rendered.first.recycle()
@@ -140,7 +141,7 @@ class OcrAnalyzer : AutoCloseable {
                 val verified = verification && index == 1 && regions.keys.all {
                     CounterOcrPassPolicy.verificationAgrees(readings.getValue(it), it)
                 }
-                if (verified || index + 1 == variants.size) finish() else read(index + 1)
+                if (verified || index + 1 == passes.size) finish() else read(index + 1)
             }
             try {
                 onPass()
@@ -157,7 +158,7 @@ class OcrAnalyzer : AutoCloseable {
         read(0)
     }
 
-    private enum class CounterVariant { ORIGINAL, CONTRAST, INVERSE, WHITE_DIGITS }
+    private enum class CounterVariant { ORIGINAL, CONTRAST, INVERSE, WHITE_DIGITS, RED_DIGITS }
     private data class CounterPass(val top: Int, val height: Int, val variant: CounterVariant)
 
     /** Keep the full contrast sweep on the first source frame. Later clean frames can stop after
@@ -235,6 +236,8 @@ class OcrAnalyzer : AutoCloseable {
                 CounterVariant.CONTRAST -> ((gray - 128) * 1.8 + 128).toInt().coerceIn(0, 255)
                 CounterVariant.INVERSE -> 255 - gray
                 CounterVariant.WHITE_DIGITS -> if (CounterDigitMask.isInk(
+                    Color.red(color), Color.green(color), Color.blue(color))) 0 else 255
+                CounterVariant.RED_DIGITS -> if (CounterDigitMask.isRedInk(
                     Color.red(color), Color.green(color), Color.blue(color))) 0 else 255
                 else -> gray
             }

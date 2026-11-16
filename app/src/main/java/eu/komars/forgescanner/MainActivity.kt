@@ -649,6 +649,7 @@ class MainActivity : Activity() {
         val values = validatedValues() ?: return
         val sessionStart = scanner.session.snapshot().startedAtMillis
         if (!scanner.mobile.paired) { pairPhone(); return }
+        learnEditedCounters(values)
         syncBusy = true
         toast(if (scanner.demo) "Symulacja wysyłania…" else "Wysyłanie…")
         scanner.mobile.send(values) { result ->
@@ -663,7 +664,20 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun learnEditedCounters(values: Map<ResourceField, Long>) {
+        if (scanner.demo) return
+        val font = eu.komars.forgescanner.battle.GameDigitMemory.shared ?: return
+        val edited = values.filterKeys { it in dirtyFields }
+        if (edited.isEmpty()) return
+        edited.forEach { (field, value) ->
+            if (GameNumberParser.parse(fields.getValue(field).text.toString())?.abbreviated == false)
+                font.confirmCounter(field.name, value)
+        }
+        scanner.knowledge.syncAsync(force = true)
+    }
+
     private fun copyConfirmedValues(values: Map<ResourceField, Long>) {
+        learnEditedCounters(values)
         val previous = scanner.session.snapshot()
         values.forEach { (field, value) ->
             val observation = previous.values[field]

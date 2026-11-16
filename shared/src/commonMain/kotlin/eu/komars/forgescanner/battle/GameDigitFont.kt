@@ -1,5 +1,7 @@
 package eu.komars.forgescanner.battle
 
+import eu.komars.forgescanner.vision.CounterDigitMask
+
 /**
  * Reads the game's outlined white "Poz. N" labels (1–3 digits) by comparing each digit's shape with
  * templates cut from real screenshots and with digits learned from confirmed reads. It is an
@@ -20,9 +22,16 @@ object GameDigitFont {
   * rightmost run of adjacent digits on the text line, e.g. "9383" beside the anvil icon; thousands
   * separators are too small to be letters and are skipped. Null when the structure is not found.
   */
- fun segment(w:Int,h:Int,p:IntArray,prefixed:Boolean=true):List<Glyph>? {
+ fun segment(w:Int,h:Int,p:IntArray,prefixed:Boolean=true):List<Glyph>? =
+  segmentWith(w,h,p,prefixed,::white)
+
+ fun redCounterGlyphs(w:Int,h:Int,p:IntArray):List<Glyph>? = segmentWith(w,h,p,false) {c->
+  CounterDigitMask.isRedInk(c ushr 16 and 255,c ushr 8 and 255,c and 255)
+ }
+
+ private fun segmentWith(w:Int,h:Int,p:IntArray,prefixed:Boolean,isInk:(Int)->Boolean):List<Glyph>? {
   if(w<8||h<6||p.size!=w*h)return null
-  val ink=BooleanArray(p.size){white(p[it])}
+  val ink=BooleanArray(p.size){isInk(p[it])}
   val visited=BooleanArray(p.size);val queue=IntArray(p.size);val parts=mutableListOf<Part>()
   for(i in p.indices)if(ink[i]&&!visited[i]) {
    var head=0;var tail=1;queue[0]=i;visited[i]=true;var l=i%w;var r=l;var t=i/w;var b=t
@@ -54,6 +63,7 @@ object GameDigitFont {
    // Walk left from the rightmost letter while letters stay adjacent (gap below 0.6 × height).
    val run=mutableListOf(letters.lastOrNull()?:return null)
    for(letter in letters.dropLast(1).asReversed()){if(run.first().l-letter.r<=height*.6)run.add(0,letter) else break}
+   if(run.first().l==0 || run.last().r==w || run.any {it.t==0 || it.b==h})return null
    run.takeIf {it.size in 1..7}?:return null
   }
   // Digits are adjacent: a large gap means another label or artwork.
@@ -88,14 +98,32 @@ object GameDigitFont {
  fun read(w:Int,h:Int,p:IntArray,samples:List<Sample>)=read(segment(w,h,p),samples)
  /** Plain counter such as "9383"; up to seven digits, leading zeros rejected. */
  fun readCounter(w:Int,h:Int,p:IntArray,samples:List<Sample>):Long? {
-  val glyphs=segment(w,h,p,prefixed=false)?:return null
-  if(samples.isEmpty())return null
+  return counterValue(redCounterGlyphs(w,h,p),samples,strict=true)
+   ?: counterValue(segment(w,h,p,prefixed=false),samples,strict=false)
+ }
+ private fun counterValue(glyphs:List<Glyph>?,samples:List<Sample>,strict:Boolean):Long? {
+  if(glyphs.isNullOrEmpty()||samples.isEmpty())return null
   // The resource icon touching the number (e.g. the anvil hammer) is skipped only at the start.
-  val classified=glyphs.map {classify(it,samples)}.dropWhile {it==null}
+  val matches=glyphs.map {if(strict)classify(it,samples,.24,.09) else classify(it,samples)}
+  val classified=if(strict)matches else matches.dropWhile {it==null}
   if(classified.isEmpty()||classified.any {it==null})return null
   val digits=classified.map {it!!}
   if(digits.size>1&&digits.first()==0)return null
   return digits.fold(0L){n,d->n*10+d}
+ }
+
+ /** Strict shape evidence for OCR fallback. Every glyph in the run must match. */
+ fun readCounterShape(w:Int,h:Int,p:IntArray,samples:List<Sample>):Long? =
+  counterValue(redCounterGlyphs(w,h,p),samples,strict=true)
+   ?:counterValue(segment(w,h,p,prefixed=false),samples,strict=true)
+
+ fun learnCounter(w:Int,h:Int,p:IntArray,value:Long):List<Sample> {
+  if(value<0)return emptyList()
+  val digits=value.toString().map {it-'0'}
+  val glyphs=redCounterGlyphs(w,h,p)?.takeIf {it.size==digits.size}
+   ?:segment(w,h,p,prefixed=false)?.takeIf {it.size==digits.size}
+   ?:return emptyList()
+  return glyphs.zip(digits).map {(glyph,digit)->Sample(digit,glyph)}
  }
  /** Training examples from a label whose value was confirmed independently. */
  fun learn(w:Int,h:Int,p:IntArray,value:Int):List<Sample> {

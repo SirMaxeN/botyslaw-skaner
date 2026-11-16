@@ -84,6 +84,7 @@ class BattleOverlay(private val context: Context) {
     private var batchSections=JSONObject()
     private var batchExpectedName:String?=null
     private var batchIdentityVerified=false
+    private var batchIdentityConfirmedByUser=false
     private val quickSkills=mutableMapOf<Int,JSONObject>()
     private var quickSkillPending=0
     private var afterQuickSkills:(()->Unit)?=null
@@ -97,11 +98,11 @@ class BattleOverlay(private val context: Context) {
     private var batchPets:Int?=null;private var batchMounted:Boolean?=null
     fun cancelBatch() {if(borrowedPanel)hide()}
     fun batchInteraction(touching:Boolean) {if(borrowedPanel&&touching)shield.hide()}
-    fun scanBatch(box:LinearLayout,progress:TextView?,dragging:()->Boolean,resume:JSONObject?=null,checkpoint:((JSONObject)->Unit)?=null,navigation:((Rect)->Unit)?=null,expectedName:String,done:(Result<JSONObject>)->Unit) {
+    fun scanBatch(box:LinearLayout,progress:TextView?,dragging:()->Boolean,resume:JSONObject?=null,checkpoint:((JSONObject)->Unit)?=null,navigation:((Rect)->Unit)?=null,expectedName:String,identityConfirmedByUser:Boolean=false,done:(Result<JSONObject>)->Unit) {
         hide()
         name="";damage="";health="";weapon="";damageRaw="";healthRaw="";headerRaw="";texts.clear();skillScans=org.json.JSONArray();fairyScan=JSONObject();skillEvidence.clear()
         borrowedPanel=true;panel=box;status=progress;stageLabel=null;warning=null;runRow=null;setupRow=null;compactRow=null;expandButton=null
-        batchExpectedName=expectedName;batchIdentityVerified=false
+        batchExpectedName=expectedName;batchIdentityVerified=false;batchIdentityConfirmedByUser=identityConfirmedByUser
         batchComplete=done;batchDragging=dragging;batchResume=resume;batchCheckpoint=checkpoint;batchLayout=null;batchNavigation=navigation;batchLastCheckpoint=null;batchSections=JSONObject()
         if(resume!=null){batchSections=JSONObject(resume.optJSONObject("_sections")?.toString()?:"{}");if(!resume.has("_sections")){if(resume.optString("raw").isNotBlank())batchSections.put("bonuses",true);if(BattleText.weapon(resume.optString("weapon"))!=null)batchSections.put("weapon",true)}}
         CaptureConnection.addStateListener(captureListener)
@@ -230,6 +231,10 @@ class BattleOverlay(private val context: Context) {
             repeatButtons+=this
         },eu.komars.forgescanner.ui.ScannerAppearance.rowItem(context))
         panel!!.addView(repeatRow)
+        panel!!.addView(eu.komars.forgescanner.ui.ScannerAppearance.overlayAction(context,"Uzupełnij dane ręcznie") {
+            if(!active && failureMessage!=null) reviewScanDraft(draftSnapshot())
+        }.apply { manualRecoveryButton=this })
+
         val tools=eu.komars.forgescanner.ui.ScannerAppearance.actionRow(context)
         fun tool(label:String,action:()->Unit) { tools.addView(eu.komars.forgescanner.ui.ScannerAppearance.overlayAction(context,label) { action() }.apply { textSize=12f },eu.komars.forgescanner.ui.ScannerAppearance.rowItem(context,48)) }
         tool("Zwiń") { if(!active) { compact=true;refreshChrome() } }
@@ -268,10 +273,10 @@ class BattleOverlay(private val context: Context) {
     }
     fun endSession() { dialogs.resetOpponentSession();hide() }
     fun hide() {
-        val borrowed=borrowedPanel;batchComplete=null;borrowedPanel=false;batchDragging=null;batchResume=null;batchCheckpoint=null;batchNavigation=null;batchLastCheckpoint=null;batchLayout=null;batchExpectedName=null;batchIdentityVerified=false
+        val borrowed=borrowedPanel;batchComplete=null;borrowedPanel=false;batchDragging=null;batchResume=null;batchCheckpoint=null;batchNavigation=null;batchLastCheckpoint=null;batchLayout=null;batchExpectedName=null;batchIdentityVerified=false;batchIdentityConfirmedByUser=false
         capturedText.cancel();skillGate.cancel();afterHeader=null;clearProfileSnapshot()
         dialogs.hide();dialogs.clearOpponentDraft()
-        idleRows.clear();scanButtons.clear();repeatButtons.clear()
+        idleRows.clear();scanButtons.clear();repeatButtons.clear();manualRecoveryButton=null
         listPrompt?.dismiss(); listPrompt=null
         generation++; active=false; session=null
         selection?.close(); selection=null
@@ -318,10 +323,12 @@ class BattleOverlay(private val context: Context) {
                 (source!="self" || (o.has("open") && o.has("close")))
         }.getOrDefault(false)
     }
+    private var manualRecoveryButton:Button?=null
     private var failureMessage:String?=null
     private fun updateIndicator() {(context.applicationContext as eu.komars.forgescanner.ScannerApplication).setScannerBusy("battle",active && selection==null)}
     private fun refreshChrome() {
         if(borrowedPanel)return
+        manualRecoveryButton?.visibility=if(!active && !compact && failureMessage!=null && !setup) android.view.View.VISIBLE else android.view.View.GONE
         val scanning=active && !setup
         idleRows.forEach { it.visibility=if(active || compact) android.view.View.GONE else android.view.View.VISIBLE }
         setupRow?.visibility=if(!active && !compact && !isConfigured()) android.view.View.VISIBLE else android.view.View.GONE
@@ -416,8 +423,8 @@ class BattleOverlay(private val context: Context) {
     private fun prepareScreen(forceSetup:Boolean,attempt:Int,homeStable:Int=0) {
         panel?.visibility=android.view.View.INVISIBLE
         later(180) { frame { bitmap ->
-            val found=detector.observe(bitmap)
-            if(borrowedPanel&&found.profile){batchLayout=found;eu.komars.forgescanner.vision.CloseButtonDetector().detect(bitmap)?.let {batchNavigation?.invoke(Rect(it))}}
+            val found=detector.observe(bitmap,allowProfileCandidate=borrowedPanel&&side=="opponent")
+            if(borrowedPanel&&found.profile){batchLayout=found;detector.profileClose(bitmap,found)?.let {batchNavigation?.invoke(Rect(it))}}
             val ownHome=side=="self" && BattleHomeProof.isHome(bitmap)
             if(eu.komars.forgescanner.BuildConfig.DEBUG && side=="self" && !ownHome && attempt==0) {
                 runCatching {java.io.FileOutputStream(java.io.File(context.cacheDir,"home-rejected.png")).use {bitmap.compress(Bitmap.CompressFormat.PNG,100,it)}}
@@ -425,7 +432,7 @@ class BattleOverlay(private val context: Context) {
             val fallbackClose=if(side=="self") eu.komars.forgescanner.vision.CloseButtonDetector().detect(bitmap) else null
             panel?.visibility=android.view.View.VISIBLE
             if(found.profile && side=="self" && !ownHome) {
-                val close=eu.komars.forgescanner.vision.CloseButtonDetector().detect(bitmap)
+                val close=detector.profileClose(bitmap,found)
                 bitmap.recycle()
                 if(close==null || attempt>=2) { fail("Wróć do głównego ekranu gry i wybierz Skanuj moje.");return@frame }
                 fields.put("_home",encoded(close))
@@ -433,7 +440,12 @@ class BattleOverlay(private val context: Context) {
             } else if(found.panel!=null && !found.profile && !ownHome) {
                 val outside=WeaponDetailLayout.outsideArea(found.panel,width,height)
                 bitmap.recycle()
-                if(outside==null || attempt>=2 || found.panel.height>width*.7) { fail("Zamknij okno szczegółów w grze i ponów skan.");return@frame }
+                if(found.panel.height>width*.7) {
+                    if(attempt<2)later(250){prepareScreen(forceSetup,attempt+1)}
+                    else fail("Widzę duże okno postaci, ale nie rozpoznałem układu profilu.")
+                    return@frame
+                }
+                if(outside==null || attempt>=2) { fail("Zamknij okno szczegółów w grze i ponów skan.");return@frame }
                 fields.put("back",encoded(Rect(outside.left,outside.top,outside.right,outside.bottom)))
                 arm { tap("back") { prepareScreen(forceSetup,attempt+1) } }
             } else {
@@ -448,6 +460,9 @@ class BattleOverlay(private val context: Context) {
                 }
                 if(side=="self")ownHomeKnown=true
                 if(side=="opponent" && !found.profile) { fail("Otwórz profil przeciwnika w grze i wybierz Skanuj przeciwnika.");return@frame }
+                if(side=="opponent" && !forceSetup && borrowedPanel && found.needsHeaderProof) {
+                    active=false;scan();return@frame
+                }
                 if(side=="opponent" && !forceSetup && prefs.contains("battle_opponent")) {
                     val cached=runCatching { JSONObject(prefs.getString("battle_opponent","{}")!!) }.getOrNull()
                     if(!recheckOpponent && cached!=null && cached.optInt("width")==width && cached.optInt("height")==height && ready("opponent")) {
@@ -652,6 +667,9 @@ class BattleOverlay(private val context: Context) {
         fields=runCatching { JSONObject(prefs.getString(if(borrowedPanel&&!prefs.contains("battle_opponent"))"battle_self"else"battle_$side","{}")!!) }.getOrElse { fail("Ustaw pola ponownie"); return }
         width=fields.optInt("width"); height=fields.optInt("height")
         if(width<=0 || height<=0) { fail("Ustaw pola ponownie"); return }
+        batchLayout?.takeIf {it.needsHeaderProof}?.regions?.forEach { (key,r)->
+            fields.put(key,encoded(Rect(r.left,r.top,r.right,r.bottom)))
+        }
         capturedText.cancel();skillGate.cancel();afterHeader=null;clearProfileSnapshot();headerPending=0;headerReadable=false
         generation++; active=true; setup=false; session=null
         skillAscensionRead=null;fairyScan=JSONObject();name=""; damage=""; health=""; weapon=""; damageRaw="";healthRaw="";headerRaw="";skillScans=org.json.JSONArray();skillEvidence.clear();texts.clear(); previous=""; repeats=0; passes=0;listMoved=false;listAttempt=0;seenBonusKeys.clear()
@@ -739,10 +757,16 @@ class BattleOverlay(private val context: Context) {
                             val totals=BattleHeaderText.parse(headerRaw)
                             headerReadable=totals.damage!=null && totals.health!=null
                             damage=totals.damage.orEmpty();health=totals.health.orEmpty();damageRaw=headerRaw;healthRaw=headerRaw
-                            verifyBatchName {
+                            fun acceptHeader() = verifyBatchName {
                                 saveBatch("header")
                                 if(borrowedPanel)rewindList() else {val resume=afterHeader;afterHeader=null;resume?.invoke()}
                             }
+                            if(batchLayout?.needsHeaderProof==true&&!headerReadable) {
+                                readTotals(0) {
+                                    if(damage.isBlank()||health.isBlank())fail("Nie potwierdzono obrażeń i zdrowia w otwartym profilu.")
+                                    else acceptHeader()
+                                }
+                            } else acceptHeader()
                         }
                     }
                 }
@@ -755,6 +779,7 @@ class BattleOverlay(private val context: Context) {
         if(expected==null){next();return}
         fun matches()=NameMatch.same(BattleText.playerName(name),expected)
         fun accept(){batchIdentityVerified=true;next()}
+        if(batchIdentityConfirmedByUser){name=expected;accept();return}
         if(matches()){accept();return}
         if(!fields.has("_batchName")){fail("Nie potwierdzono nicku $expected (OCR: $name).");return}
         read("_batchName",4,contrast=1) {raw ->
@@ -929,9 +954,9 @@ class BattleOverlay(private val context: Context) {
         runtimeKey="bonuses";refreshChrome()
         // The short list needs a fixed sweep, not OCR after each upward gesture.
         if(remaining==0) { later(200) { readList() };return }
-        scrollList(true) { rewindList(remaining-1) }
+        scrollList(true) { _ -> rewindList(remaining-1) }
     }
-    private fun scrollList(toTop:Boolean,next:()->Unit) {
+    private fun scrollList(toTop:Boolean,next:(Boolean)->Unit) {
         val r=region("bonuses");val x=r.exactCenterX()
         val distance=minOf(r.height()*(if(toTop) .80f else .60f),height*.25f)
         val from=if(toTop) r.top+r.height()*.15f else r.bottom-r.height()*.15f
@@ -940,15 +965,29 @@ class BattleOverlay(private val context: Context) {
         val corridor=Rect((x-20).toInt(),minOf(from,to).toInt()-20,kotlin.math.ceil(x.toDouble()).toInt()+21,kotlin.math.ceil(maxOf(from,to).toDouble()).toInt()+21)
         gestureSpace(corridor,{
             if(!guard()) return@gestureSpace
-            GestureConnection.drag(requireNotNull(session),x,from,x,to,if(toTop) 650 else 320,false) { result ->
-                if(active && token==generation) {
+            GestureConnection.drag(requireNotNull(session),x,from,x,to,if(toTop) 650 else 320,!toTop) { result ->
+                if(!active || token!=generation) return@drag
+                if(result.isFailure) {
                     shield.hide()
-                    if(result.isFailure) fail(result.exceptionOrNull()?.message ?: "Przewijanie przerwane") else later(if(toTop) 80 else 250,next)
+                    fail(result.exceptionOrNull()?.message ?: "Przewijanie przerwane")
+                } else if(toTop) {
+                    shield.hide()
+                    later(80) {next(false)}
+                } else CaptureConnection.requestFrame { image,_ ->
+                    if(!active || token!=generation) {image?.recycle();return@requestFrame}
+                    val end=image?.let {ListBoundary.emptyRow(it,r,r.height()/6,darkBackground=true)}==true
+                    image?.recycle()
+                    GestureConnection.endHold(requireNotNull(session)) {release ->
+                        if(active && token==generation) {
+                            shield.hide()
+                            release.fold({later(180) {next(end)}},{fail(it.message ?: "Przewijanie przerwane")})
+                        }
+                    }
                 }
             }
         })
     }
-    private fun readList() {
+    private fun readList(emptyTail:Boolean=false) {
         status?.text="Odczytuję listę bonusów. Przewijanie jest automatyczne."
         read("bonuses") { text ->
             texts.add(text)
@@ -960,11 +999,12 @@ class BattleOverlay(private val context: Context) {
             if(signature.isBlank()) { retryList(); return@read }
             repeats=if(signature==previous) repeats+1 else 0
             previous=signature; passes++
+            if(emptyTail && parsed.isNotEmpty()) {readWeapon();return@read}
             // A short list fits the box and cannot move: the same few bonuses read twice are the whole list
             // (2026-11-08: SroczkinssPL with 6 bonuses failed four war-scan rounds here).
             if(repeats>=1) { if(listMoved||parsed.size in 1..ShortBonusList.MAX) readWeapon() else confirmUnmovedList(); return@read }
             if(passes>=8) { retryList();return@read }
-            scrollList(false) { readList() }
+            scrollList(false) { end -> readList(end) }
         }
     }
     private fun retryList() {
@@ -1312,13 +1352,17 @@ class BattleOverlay(private val context: Context) {
     private fun finish() {
         val draft=draftSnapshot()
         if(batchComplete!=null){saveBatch("finished");deliverBatch(Result.success(draft));return}
-        if(side=="self") drafts.edit().putString("draft_self",draft.toString()).apply() else dialogs.setOpponentDraft(draft)
         generation++;active=false;session=null
         GestureConnection.cancel();shield.hide()
         panel?.visibility=android.view.View.VISIBLE
         status?.text="Skan gotowy. Sprawdź dane w oknie nad grą.";refreshChrome()
-        if(side=="opponent") dialogs.acceptOpponent { status?.text="Przeciwnik odczytany. Wybierz rodzaj walki.";refreshChrome();dialogs.chooseBattle() }
+        reviewScanDraft(draft)
+    }
+    private fun reviewScanDraft(draft:JSONObject) {
+        if(side=="self") drafts.edit().putString("draft_self",draft.toString()).apply() else dialogs.setOpponentDraft(draft)
+        if(side=="opponent") dialogs.acceptOpponent { failureMessage=null;status?.text="Przeciwnik odczytany. Wybierz rodzaj walki.";refreshChrome();dialogs.chooseBattle() }
         else dialogs.review(side) {
+            failureMessage=null;refreshChrome()
             // Clan tech is read only by "Odczyt listy wojennej", never after a character scan.
             status?.text="Moja postać zapisana. Otwórz przeciwnika w grze i wybierz Skanuj przeciwnika."
         }

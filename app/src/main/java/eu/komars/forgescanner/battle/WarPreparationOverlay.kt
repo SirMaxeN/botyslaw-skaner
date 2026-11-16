@@ -40,6 +40,7 @@ class WarPreparationOverlay(private val context:Context) {
  private var fullResult:JSONObject?=null
  private var fullSide=false;private var fullTarget:String?=null
  private var fullProcessed=mutableSetOf<String>()
+ private val fullSkipped=mutableSetOf<String>()
  private var fullProfileAnchor:MemberProfileAnchor?=null
  private val fullCentered=mutableSetOf<String>()
  private var fullRepairPass=false
@@ -87,12 +88,20 @@ class WarPreparationOverlay(private val context:Context) {
  private var fullEnemySwept=false
  private var lastFullViewport:List<Pair<Int,Int>> = emptyList()
  private var stableFullViewport=0
+ private fun skipKey(enemy:Boolean,member:WarMember)="$enemy|${BattleText.normalize(member.name)}"
+ private fun skipped(enemy:Boolean,member:WarMember)=skipKey(enemy,member) in fullSkipped
+ private fun markMemberSkipped(enemy:Boolean,member:WarMember) {
+  fullSkipped+=skipKey(enemy,member)
+  saveFull("member-skipped",true)
+  fullStore.log("member-skipped",JSONObject().put("name",member.name).put("enemy",enemy))
+ }
+
  private fun fullId(enemy:Boolean,member:WarMember)="$enemy|${BattleText.normalize(member.name)}|${member.power}"
  private fun saveFull(phase:String,saveRoster:Boolean=false) {
   if(!fullMode||ownClan==null||ourExpected !in 1..50)return
   val state=JSONObject().put("phase",phase).put("enemy",fullSide).put("target",fullTarget?:JSONObject.NULL).put("own_clan",ownClan).put("enemy_clan",enemyClan?:JSONObject.NULL)
    .put("own_expected",ourExpected).put("enemy_expected",enemyExpected).put("width",width).put("height",height).put("own_damage",ownDamage).put("own_health",ownHealth).put("enemy_damage",enemyDamage).put("enemy_health",enemyHealth)
-   .put("processed",JSONArray(fullProcessed.toList())).put("enemy_swept",fullEnemySwept).put("ranking",rankingMode)
+   .put("processed",JSONArray(fullProcessed.toList())).put("skipped",JSONArray(fullSkipped.toList())).put("enemy_swept",fullEnemySwept).put("ranking",rankingMode)
   fullStore.checkpoint(state,ours.savedRows(),enemies.savedRows(),saveRoster)
  }
  private val fullEditor=BattleOverlayDialogs(context,resetSessionOnCreate=false)
@@ -145,19 +154,42 @@ class WarPreparationOverlay(private val context:Context) {
   stageLabel?.text=if(rankingMode)"▶ Ranking klanu: $title" else "▶ Krok ${at+1}/${maxOf(at+1,if(listMode) 8 else if(preparingAll) 7 else 6)}: $title";stageLabel?.setTextColor(color)
   (panel?.background as? android.graphics.drawable.GradientDrawable)?.setStroke(dp(2),color)
  }
+ private fun finishReport() {
+  active=false
+  paused=false
+  retryStep=null
+  clearRecoveryActions()
+  setRosterControls(0)
+  warning?.visibility=View.GONE
+  shield.hide()
+  GestureConnection.cancel()
+  CaptureConnection.removeStateListener(listener)
+  CaptureConnection.holdWhileHidden=false
+  CaptureConnection.stop()
+  stageLabel?.text="✓ Zakończono"
+  restoreFullPanel()
+  chrome?.setCompact(false)
+  panel?.visibility=View.VISIBLE
+  chrome?.showCompletion(::returnToApp)
+ }
+
  private fun clearRecoveryActions() {recovery?.removeAllViews()}
  /** After a finished list or ranking: one tap back to the app (closes the overlay and capture). */
  private fun addReturnToApp() {
   restoreFullPanel()
-  recovery?.addView(ScannerAppearance.overlayAction(context,"↩ Wróć do aplikacji") {
-   val destination=android.content.Intent(context,BattleActivity::class.java)
-    .putExtra(BattleActivity.EXTRA_RESEARCH,techMode)
-    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP)
-   stop()
-   context.startActivity(destination)
-  },0)
+  chrome?.setCompact(false)
+  panel?.visibility=View.VISIBLE
+  recovery?.visibility=View.VISIBLE
+  recovery?.addView(ScannerAppearance.overlayAction(context,"↩ Wróć do aplikacji",action=::returnToApp),0)
  }
- private fun fail(text:String) {
+ private fun returnToApp() {
+  val destination=android.content.Intent(context,BattleActivity::class.java)
+   .putExtra(BattleActivity.EXTRA_RESEARCH,techMode)
+   .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP)
+  context.startActivity(destination)
+  stop()
+ }
+ private fun fail(text:String,manual:(()->Unit)?=null) {
   restoreFullPanel()
   if(fullMode||techMode){fullStore.log("failure",JSONObject().put("stage",stage).put("target",fullTarget?:JSONObject.NULL).put("reason",text));if(stage==6&&fullStore.state()!=null)retryStep={resumeFullWork()}}
   screenFlow.reset();transitionEpoch++
@@ -170,6 +202,26 @@ class WarPreparationOverlay(private val context:Context) {
    prefs.edit().remove("war_$key").putBoolean("war_verified_$key",false).apply()
    if(retry!=null)recoverAction(retry)
   }))}
+  if(manual!=null)recovery?.addView(ScannerAppearance.overlayAction(context,"Wpisz brakującą wartość",action=manual))
+  if(fullMode&&stage==6) {
+   val enemy=fullSide
+   val target=(if(enemy)enemies else ours).values.firstOrNull {it.name==fullTarget}
+   val clan=if(enemy)enemyClan else ownClan
+   if(target!=null&&clan!=null&&fullStore.entry(enemy,clan,target)?.optBoolean("complete")!=true) {
+    if(!skipped(enemy,target)) recovery?.addView(ScannerAppearance.overlayAction(context,"Pomiń ${target.name}") {
+     markMemberSkipped(enemy,target)
+     recoverAction {resumeFullWork()}
+    })
+    recovery?.addView(ScannerAppearance.overlayAction(context,"Otwarty profil to ${target.name} · skanuj") {
+     recoverAction {
+      fullStore.log("member-confirmed-open",JSONObject().put("name",target.name).put("enemy",enemy))
+      step(6,"Odczytuję otwarty profil: ${target.name}")
+      scanOpenedMember(enemy,clan,target,identityConfirmedByUser=true) {resumeFullWork()}
+     }
+    })
+   }
+   addFullRecovery()
+  }
   if(!techMode&&stage in 1..3)recovery?.addView(ScannerAppearance.overlayAction(context,"Wskaż badania ręcznie",action={manualResearch()}))
   if(!techMode&&stage in 2..3)recovery?.addView(ScannerAppearance.overlayAction(context,"Popraw opis i zamknięcie badania",action={
    prefs.edit().remove("war_researchText").remove("war_researchClose").apply()
@@ -258,7 +310,7 @@ class WarPreparationOverlay(private val context:Context) {
   // A run left for hours (e.g. overnight) is not resumed: members' powers changed, so the saved roster no
   // longer matches the screen ("Nie udało się potwierdzić tożsamości"). Profiles are kept; the list is read anew.
   if(full&&!savedOnly&&fullStore.state()?.let {System.currentTimeMillis()-it.optLong("updatedAt")>2*60*60*1000L}==true)fullStore.resetRun()
-  fullMode=full;fullProcessed.clear();fullTarget=null;fullSide=false;fullCentered.clear();fullRepairPass=false;fullEnemySwept=false;lastFullViewport=emptyList();stableFullViewport=0;fullCancel=java.util.concurrent.atomic.AtomicBoolean(false);if(full)fullStore.prune();testMode=test;listMode=roster;preparingAll=configureAll;rosterConfigured=false;proposals.clear()
+  fullMode=full;fullProcessed.clear();fullSkipped.clear();fullTarget=null;fullSide=false;fullCentered.clear();fullRepairPass=false;fullEnemySwept=false;lastFullViewport=emptyList();stableFullViewport=0;fullCancel=java.util.concurrent.atomic.AtomicBoolean(false);if(full)fullStore.prune();testMode=test;listMode=roster;preparingAll=configureAll;rosterConfigured=false;proposals.clear()
   if(!app.mobile.paired) {Toast.makeText(context,"Połącz aplikację z Discordem w menu głównym.",Toast.LENGTH_LONG).show();return}
   if(rankingMode)testMode=false
   if(roster && !testMode && WarPreparationModel.day()==null) {Toast.makeText(context,"Lista dostępna od niedzieli 01:00 do poniedziałku 01:00.",Toast.LENGTH_LONG).show();return}
@@ -579,8 +631,8 @@ class WarPreparationOverlay(private val context:Context) {
    mark("clanTechnologyCategory","Kafelek klanu z czerwoną flagą") {target ->verifiedTap("clanTechnologyCategory",target) {rewindResearch(0)}}
   }}
  }
- private fun seekResearch(at:Int,rewound:Boolean=false,replayCheck:Boolean=false) {
-  retryStep={seekResearch(at,rewound,replayCheck)}
+ private fun seekResearch(at:Int,rewound:Boolean=false,replayCheck:Boolean=false,emptyTail:Boolean=false) {
+  retryStep={seekResearch(at,rewound,replayCheck,emptyTail)}
   say("Szukam badań wojennych: ikony flagi z mieczem i sercem (niebieskie lub zielone). Nie dotykaj ekranu.")
   panel?.visibility=View.INVISIBLE
   later(180) {frame {image ->
@@ -603,10 +655,13 @@ class WarPreparationOverlay(private val context:Context) {
     rewindResearch(0)
    } else if(at==0 && !rewound) {
     rewindResearch(0)
-   } else if(at>=12) {
+   } else if(emptyTail||at>=12) {
     if(rewound)fail("Nie rozpoznano obu badań po przeszukaniu drzewka. Możesz wskazać je ręcznie.")
     else rewindResearch(0)
-   } else scrollResearch(false,brake=true) {seekResearch(at+1,rewound)}
+   } else {
+    var reachedEnd=false
+    scrollResearch(false,brake=true,boundary={reachedEnd=it}) {seekResearch(at+1,rewound,emptyTail=reachedEnd)}
+   }
   }}
  }
  private fun beginResearchSearch() {
@@ -659,7 +714,14 @@ class WarPreparationOverlay(private val context:Context) {
    scrollResearch(true,brake=false) {waitForResearchStill {rewindResearch(at+1,techPass)}}
   }}
  }
- private fun scrollResearch(toTop:Boolean,brake:Boolean=true,next:()->Unit) {
+ private fun releaseWithBoundary(area:Rect,rowHeight:Int,release:((()->Unit)->Unit),next:(Boolean)->Unit) {
+  frame(fresh=false) {held ->
+   val empty=ListBoundary.emptyRow(held,area,rowHeight)
+   held.recycle()
+   release {next(empty)}
+  }
+ }
+ private fun scrollResearch(toTop:Boolean,brake:Boolean=true,boundary:((Boolean)->Unit)?=null,next:()->Unit) {
   val stroke=ResearchScrollGesture.create(width,height,toTop)
   val corridor=Rect((stroke.x-dp(16)).toInt(),minOf(stroke.fromY,stroke.toY).toInt()-dp(16),
    (stroke.x+dp(16)).toInt(),maxOf(stroke.fromY,stroke.toY).toInt()+dp(16))
@@ -669,8 +731,14 @@ class WarPreparationOverlay(private val context:Context) {
     if(active&&g==generation)result.fold({
      if(!brake){shield.hide();later(60,next);return@fold}
      // Continue the SAME touch with a stationary release. No new tap on any node.
-     GestureConnection.endHold(requireNotNull(session)) {released ->
-      if(active&&g==generation){shield.hide();released.fold({later(180,next)},{fail(it.message?:"Nie zakończono przewijania")})}
+     fun release(done:()->Unit) {
+      GestureConnection.endHold(requireNotNull(session)) {released ->
+       if(active&&g==generation){shield.hide();released.fold({later(180,done)},{fail(it.message?:"Nie zakończono przewijania")})}
+      }
+     }
+     if(boundary==null)release(next)
+     else releaseWithBoundary(Rect(width/12,height*30/100,width*11/12,height*84/100),width*23/100,::release) {end->
+      boundary(end);next()
      }
     },{shield.hide();fail(it.message?:"Przewijanie przerwane")})
    }
@@ -765,20 +833,49 @@ class WarPreparationOverlay(private val context:Context) {
      if(at<2){say("Ponawiam procent tego samego badania w innym kontraście.");readValue(at+1)}
      else {
       if(eu.komars.forgescanner.BuildConfig.DEBUG)runCatching {java.io.File(context.cacheDir,"research-rejected.txt").writeText(text)}
-      fail("Nie odczytano właściwego badania i procentu. Popraw tylko obszar opisu lub ponów odczyt.")
+      fail("Nie odczytano procentu badania. Możesz go wpisać z otwartego okna lub ponowić odczyt.") {
+       enterResearchNumber(if(health)"Zdrowie wojenne (%)"else"Obrażenia wojenne (%)",null) {value->
+        recoverAction {acceptWarResearch(health,value)}
+       }
+      }
      }
      return@read
     }
-    if(health)ownHealth=value else ownDamage=value
-    tap("researchClose","Czerwony X otwartego okna badania") {
-     if(!health)researchNode(true)else {
-      data.edit().putFloat("damage",ownDamage.toFloat()).putFloat("health",ownHealth.toFloat()).putLong("researchAt",System.currentTimeMillis()).apply()
-      leaveResearch {warScreen()}
-     }
-    }
+    acceptWarResearch(health,value)
    }}
    readValue(0)
    
+  }
+ }
+
+ private fun acceptWarResearch(health:Boolean,value:Double) {
+  if(health)ownHealth=value else ownDamage=value
+  tap("researchClose","Czerwony X otwartego okna badania") {
+   if(!health)researchNode(true)else {
+    data.edit().putFloat("damage",ownDamage.toFloat()).putFloat("health",ownHealth.toFloat()).putLong("researchAt",System.currentTimeMillis()).apply()
+    leaveResearch {warScreen()}
+   }
+  }
+ }
+ private fun enterResearchNumber(title:String,maxLevel:Int?,onCancel:(()->Unit)?=null,accept:(Double)->Unit) {
+  val themed=android.view.ContextThemeWrapper(context,eu.komars.forgescanner.R.style.ScannerDialogTheme)
+  val input=android.widget.EditText(themed).apply {
+   hint=if(maxLevel==null)"Np. 8700 albo 8,7k%"else "Poziom 0–$maxLevel"
+   inputType=android.text.InputType.TYPE_CLASS_TEXT
+   setSingleLine(true)
+  }
+  val dialog=android.app.AlertDialog.Builder(themed).setTitle(title).setView(input)
+   .setPositiveButton("Zapisz i kontynuuj",null).setNegativeButton(if(onCancel==null)"Anuluj"else"Pomiń") {_,_->onCancel?.invoke()}.create()
+  dialog.setOnCancelListener {onCancel?.invoke()}
+  dialog.window?.setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY)
+  dialog.show()
+  dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+   val text=input.text.toString().trim().removeSuffix("%").trim().lowercase().replace(",",".")
+   val value=if(maxLevel==null)text.removeSuffix("k").toDoubleOrNull()?.times(if(text.endsWith("k"))1000.0 else 1.0)
+    else text.toIntOrNull()?.takeIf {it in 0..maxLevel}?.toDouble()
+   if(value==null||!value.isFinite()||value<0||value>Float.MAX_VALUE) {input.error="Wpisz poprawną wartość.";return@setOnClickListener}
+   dialog.dismiss()
+   accept(value)
   }
  }
 
@@ -846,6 +943,7 @@ class WarPreparationOverlay(private val context:Context) {
   val collected=LinkedHashMap<String,JSONObject>()
   var section:ClanTechSections.Section?=null
   var stillPages=0
+  var emptyTail=false
  }
  // Configuration and replay share exactly the same held drag and settling delay.
  private fun scrollTech(next:()->Unit)=scrollResearch(false,brake=true){later(500,next)}
@@ -869,14 +967,15 @@ class WarPreparationOverlay(private val context:Context) {
   }
   move(current)
  }
- private fun techSweep(page:Int,pass:TechPass,previous:IntArray?) {
-  retryStep={techSweep(page,pass,previous)};repairKey=null
+ private fun techSweep(page:Int,pass:TechPass,previous:IntArray?,emptyTail:Boolean=false) {
+  retryStep={techSweep(page,pass,previous,emptyTail)};repairKey=null
   val tracked=trackedTech()
   step(2,"Konfiguruję trasę · $page przesunięć od góry")
   say("Zatwierdzone pola: ${pass.sites.size}/${tracked.size}. Nie dotykaj gry podczas przewijania.")
   panel?.visibility=View.INVISIBLE
   later(220) {frame {image ->
    val sample=researchSample(image)
+   pass.emptyTail=emptyTail
    pass.stillPages=if(previous!=null&&techSame(previous,sample))pass.stillPages+1 else 0
    if(pass.stillPages>=2){image.recycle();panel?.visibility=View.VISIBLE;techDone(pass);return@frame}
    val ww=minOf(360,image.width);val hh=image.height*ww/image.width
@@ -975,9 +1074,10 @@ class WarPreparationOverlay(private val context:Context) {
   }
  }
  private fun techScroll(page:Int,pass:TechPass,sample:IntArray) {
-  if(page>=TECH_MAX_PAGES||pass.sites.size>=trackedTech().size){techDone(pass);return}
+  if(pass.emptyTail||page>=TECH_MAX_PAGES||pass.sites.size>=trackedTech().size){techDone(pass);return}
   say("Przewijam drzewo badań w dół. Nie dotykaj gry.")
-  scrollTech {techSweep(page+1,pass,sample)}
+  var emptyTail=false
+  scrollResearch(false,brake=true,boundary={emptyTail=it}) {later(500){techSweep(page+1,pass,sample,emptyTail)}}
  }
  private fun techSame(a:IntArray,b:IntArray):Boolean = a.size==b.size&&a.indices.sumOf {kotlin.math.abs(a[it]-b[it]).toLong()}/a.size<4
  private fun saveTechFrame(image:Bitmap,page:Int,count:Int) {
@@ -995,12 +1095,15 @@ class WarPreparationOverlay(private val context:Context) {
    read(target.label,variant=1) {secondLabel ->
    val labels=listOf(firstLabel,secondLabel)
    verifiedTap("clanTechNode",target.disc) {
+    val windowReads=mutableMapOf<Int,String>()
     fun readWindow(textRect:Rect,variant:Int) {
      retryStep={readWindow(textRect,variant)};repairKey="researchText"
      read(textRect,variant=variant) {text ->
       val catalog=eu.komars.forgescanner.model.ClanTechCatalog
       val entry=requireNotNull(catalog.entry(index))
+      windowReads[variant]=text
       val level=catalog.level(index,labels,text)?.takeIf {catalog.dayMatches(index,text)}
+       ?:catalog.levelFromPopupReads(index,labels,windowReads.values.toList())
       fullStore.log("clan-tech-node",JSONObject().put("index",index).put("contrast",variant).put("labels",JSONArray(labels))
        .put("window",text.take(240)).put("level",level?:JSONObject.NULL))
       if(level==null&&variant<2){readWindow(textRect,variant+1);return@read}
@@ -1018,7 +1121,18 @@ class WarPreparationOverlay(private val context:Context) {
         if(close==null){
          fail("Zapisana trasa nie otworzyła badania ${entry.name}. Wróć do aplikacji i ponów konfigurację.")
          addReturnToApp()
-        } else verifiedTap("researchClose",close) {techNode(queue,at+1,pass,next)}
+        } else {
+         val g=generation
+         fun advance() {if(active&&g==generation)verifiedTap("researchClose",close) {techNode(queue,at+1,pass,next)}}
+         enterResearchNumber(entry.name,entry.maxLevel,onCancel=::advance) {number->
+          if(active&&g==generation) {
+           val manualLevel=number.toInt()
+           pass.distance[index]=0.0
+           pass.collected[entry.key]=techValue(entry.key,entry.name,manualLevel,entry.maxLevel,manualLevel*entry.stepPercent)
+           advance()
+          }
+         }
+        }
        }
       }
      }
@@ -1075,7 +1189,7 @@ class WarPreparationOverlay(private val context:Context) {
     val count=runCatching {JSONObject(response).getInt("nodes")}.getOrDefault(pass.collected.size)
     status?.text="Zapisano $count bonusów. Discord: /tech show."+
      if(missing.isNotEmpty())" Zachowano poprzednie wartości: ${missing.joinToString()}." else ""
-    warning?.visibility=View.GONE;active=false;addReturnToApp()
+    finishReport()
    },{fail(it.message?:"Nie udało się zaktualizować technologii.")})
   }
  }
@@ -1178,14 +1292,20 @@ class WarPreparationOverlay(private val context:Context) {
      }
  }
 
- private fun scrollRosterDown(r:Rect,rows:List<RosterObservation>,next:()->Unit) {
+ private fun scrollRosterDown(r:Rect,rows:List<RosterObservation>,next:(Boolean)->Unit) {
   if(fullMode){saveFull("scroll");fullStore.log("scroll",JSONObject().put("direction","down").put("visible",rows.size))}
   val distance=RosterScrollPlan.down(r.height(),height,rows.mapNotNull {it.anchorY})*rosterDownGain
   val x=kotlin.math.round(r.exactCenterX());val from=kotlin.math.round(r.bottom-r.height()*.08f);val to=kotlin.math.round(from-distance)
   away(Rect(r).apply {inset(-24,-24)}) {
    val g=generation
+   val anchors=rows.mapNotNull {it.anchorY}.sorted()
+   val pitches=anchors.zipWithNext {a,b->b-a}.filter {it in r.height()/12..r.height()/3}.sorted()
+   val rowHeight=pitches.getOrNull(pitches.size/2)
    GestureConnection.drag(requireNotNull(session),x,from,x,to,350,true) {result ->
-    if(active&&g==generation)result.fold({brakeRoster(next)},{fail(it.message?:"Przewijanie przerwane")})
+    if(active&&g==generation)result.fold({
+     if(rowHeight==null)brakeRoster {next(false)}
+     else releaseWithBoundary(r,rowHeight,::brakeRoster,next)
+    },{fail(it.message?:"Przewijanie przerwane")})
    }
   }
  }
@@ -1312,7 +1432,7 @@ class WarPreparationOverlay(private val context:Context) {
    }
   }}}
  }
- private fun readRoster(enemy:Boolean,r:Rect,attempt:Int=0,recovered:Boolean=false) {
+ private fun readRoster(enemy:Boolean,r:Rect,attempt:Int=0,recovered:Boolean=false,emptyTail:Boolean=false) {
   retryStep={retryRoster(enemy,false)};repairKey="roster";setRosterControls(2)
   val list=if(enemy)enemies else ours
   say("${if(enemy)"Rywal"else"Nasz klan"}: ${list.size}/$expected postaci, dane ${list.resolvedCount}. Odczytuję pola…")
@@ -1329,7 +1449,7 @@ class WarPreparationOverlay(private val context:Context) {
    if(fullMode&&merged.isSuccess){fullSide=enemy;saveFull("roster",true);fullStore.log("roster-read",JSONObject().put("enemy",enemy).put("visible",rows.size).put("known",list.size).put("resolved",list.resolvedCount))}
    if(merged.isFailure) {
     if(!recovered&&list.needsOverlapRecovery(rows)){restoreRosterOverlap(r,rows){readRoster(enemy,r,0,true)};return@captureRoster}
-    if(attempt<2){say("Sprawdzam powtórzone awatary i nicki. Nie dodaję nowych postaci.");later(if(attempt==0)400 else 900){readRoster(enemy,r,attempt+1,recovered)}}
+    if(attempt<2){say("Sprawdzam powtórzone awatary i nicki. Nie dodaję nowych postaci.");later(if(attempt==0)400 else 900){readRoster(enemy,r,attempt+1,recovered,emptyTail)}}
     else if(fullMode&&rosterRebuilt.add(enemy)) {
      // The saved list no longer matches the screen (someone left, joined or was swapped): read it anew once.
      list.clear();fullStore.log("roster-reset",JSONObject().put("enemy",enemy).put("reason","identity"))
@@ -1340,16 +1460,16 @@ class WarPreparationOverlay(private val context:Context) {
     else failRosterEnd(enemy,"Nie udało się połączyć tego widoku z wcześniejszym. Zachowano ${list.size} postaci; nie dopisano powtórek. Ponów bieżący widok lub listę od góry.")
     return@captureRoster
    }
-   if(fullMode)scanFullRows(enemy,r,rows) {finishRosterPage(enemy,r,rows,sample)}else finishRosterPage(enemy,r,rows,sample)
+   if(fullMode)scanFullRows(enemy,r,rows) {finishRosterPage(enemy,r,rows,sample,emptyTail)}else finishRosterPage(enemy,r,rows,sample,emptyTail)
   }
  }
- private fun finishRosterPage(enemy:Boolean,r:Rect,rows:List<RosterObservation>,sample:IntArray) {
+ private fun finishRosterPage(enemy:Boolean,r:Rect,rows:List<RosterObservation>,sample:IntArray,emptyTail:Boolean) {
    val list=if(enemy)enemies else ours
-   val stopped=rosterEnd.add(sample)
+   val stopped=rosterEnd.add(sample)||emptyTail
    if(fullMode) {
     val clan=if(enemy)enemyClan.orEmpty()else ownClan.orEmpty()
     val remaining=list.values.count {member ->
-     fullId(enemy,member) !in fullProcessed&&fullStore.entry(enemy,clan,member)?.optBoolean("complete")!=true
+     !skipped(enemy,member)&&fullId(enemy,member) !in fullProcessed&&fullStore.entry(enemy,clan,member)?.optBoolean("complete")!=true
     }
     if(list.size==expected&&list.resolvedCount==expected&&remaining==0){finishRoster(enemy);return}
     val viewport=list.visibleIndices(rows.size).zip(rows.map {it.anchorY?:-1})
@@ -1360,7 +1480,7 @@ class WarPreparationOverlay(private val context:Context) {
     lastFullViewport=viewport
     if(manualListBoundary||stopped||stableFullViewport>=2||++scrolls>=40) {
      recoverFullCoverage(enemy,r,"Zebrano ${list.resolvedCount}/$expected członków. Pozostało $remaining profili do otwarcia.")
-    } else scrollRosterDown(r,rows){readRoster(enemy,r)}
+    } else scrollRosterDown(r,rows){end->readRoster(enemy,r,emptyTail=end)}
     return
    }
    if(list.size==expected && list.resolvedCount==expected){finishRoster(enemy);return}
@@ -1368,7 +1488,7 @@ class WarPreparationOverlay(private val context:Context) {
    if(list.size==expected){repairMissingRoster(enemy);return}
    if(stopped)failRosterEnd(enemy,"Koniec listy: ${list.size}/$expected postaci. Nie przewijam listy ponownie. Ponów bieżący widok albo wybierz ręcznie przejście od góry.")
    else if(++scrolls>=40)failRosterEnd(enemy,"Zatrzymano długie przewijanie: ${list.size}/$expected postaci, dane ${list.resolvedCount}.")
-   else {say("${if(enemy)"Rywal"else"Nasz klan"}: ${list.size}/$expected postaci, dane ${list.resolvedCount}. Odczytuję cały widok i przesuwam dalej…");scrollRosterDown(r,rows){readRoster(enemy,r)}}
+   else {say("${if(enemy)"Rywal"else"Nasz klan"}: ${list.size}/$expected postaci, dane ${list.resolvedCount}. Odczytuję cały widok i przesuwam dalej…");scrollRosterDown(r,rows){end->readRoster(enemy,r,emptyTail=end)}}
 
  }
  private fun recoverFullCoverage(enemy:Boolean,r:Rect,reason:String) {
@@ -1457,6 +1577,8 @@ class WarPreparationOverlay(private val context:Context) {
   ourExpected=saved.optInt("own_expected");enemyExpected=saved.optInt("enemy_expected")
   fullSide=saved.optBoolean("enemy");fullTarget=if(saved.isNull("target"))null else saved.optString("target").takeIf {it.isNotBlank()}
   fullProcessed=(0 until (saved.optJSONArray("processed")?.length()?:0)).map {saved.getJSONArray("processed").getString(it)}.toMutableSet()
+  fullSkipped.clear()
+  saved.optJSONArray("skipped")?.let {rows->for(i in 0 until rows.length()) fullSkipped+=rows.getString(i)}
   ours.restore(fullStore.roster(false),repairDuplicates=true);enemies.restore(fullStore.roster(true),repairDuplicates=true)
   fullEnemySwept=saved.optBoolean("enemy_swept")
   fullRepairPass=false
@@ -1469,10 +1591,10 @@ class WarPreparationOverlay(private val context:Context) {
   retryStep={resumeFullWork()};repairKey=null;fullCentered.clear();step(6,"Wznawiam ${fullTarget?:if(fullSide)"listę rywali"else"nasz klan"}")
   fullStore.log("resume",JSONObject().put("target",fullTarget?:JSONObject.NULL).put("known",if(fullSide)enemies.size else ours.size).put("expected",expected))
   cleanFrame {image ->
-   val seen=scene(image);val profile=memberDetector.observe(image).profile;val close=if(profile)eu.komars.forgescanner.vision.CloseButtonDetector().detect(image)else null;image.recycle()
+   val seen=scene(image);val observed=memberDetector.observe(image,allowProfileCandidate=fullTarget!=null);val close=memberDetector.profileClose(image,observed);image.recycle()
    if(saved.optInt("width")!=width||saved.optInt("height")!=height){fail("Zmieniono rozmiar obrazu. Profile zapisane; popraw pola przed wznowieniem.");return@cleanFrame}
    GestureConnection.requestArm(width,height) {armed->if(!active||g!=generation)return@requestArm;session=armed.getOrNull();if(session==null){fail(armed.exceptionOrNull()?.message?:"Włącz dostępność i ponów wznowienie.");return@requestArm}
-    if("roster" in seen.states) {
+    if("roster" in seen.states && close==null) {
      val r=rect("roster")?:run {fail("Brak pola listy. Zapisany postęp pozostaje zachowany.");return@requestArm}
      val header=RosterHeaderRegion.above(width,height,eu.komars.forgescanner.model.PixelRegion(r.left,r.top,r.right,r.bottom))?:run {fail("Nie potwierdzono nagłówka listy.");return@requestArm}
      readClanHeader(Rect(header.left,header.top,header.right,header.bottom)) {text,_ ->
@@ -1492,7 +1614,7 @@ class WarPreparationOverlay(private val context:Context) {
       saveFull("resume-sweep",true)
       rewindRoster(fullSide,r)
      }
-    }else if(profile) {
+    }else if(observed.profile) {
      screenFlow.observe(eu.komars.forgescanner.model.GameNavigationGraph.Screen.PROFILE)
      fullProfileAnchor=close?.let {MemberProfileAnchor(fullTarget.orEmpty(),width,height,eu.komars.forgescanner.model.PixelRegion(it.left,it.top,it.right,it.bottom))}
      closeFullProfile(knownProfile=true) {resumeFullWork()}
@@ -1515,14 +1637,14 @@ class WarPreparationOverlay(private val context:Context) {
    // Before opening anyone on this page: ask the bot server backup for members this phone has nothing for.
    if(position==0&&app.mobile.paired) {
     val missing=order.mapNotNull {idx->indices.getOrNull(idx)?.takeUnless {it in list.unresolvedIndices}?.let {list.partial(it)}?.let {p->if(p.name!=null&&p.power!=null)WarMember(p.name,p.power)else null}}
-     .filter {fullStore.entry(enemy,clan,it)?.optBoolean("complete")!=true&&fullId(enemy,it) !in fullProcessed&&fullId(enemy,it) !in serverAsked}
+     .filter {!skipped(enemy,it)&&fullStore.entry(enemy,clan,it)?.optBoolean("complete")!=true&&fullId(enemy,it) !in fullProcessed&&fullId(enemy,it) !in serverAsked}
     if(missing.isNotEmpty()) {serverAsked+=missing.map {fullId(enemy,it)};say("Sprawdzam profile zapisane na serwerze klanu…");fetchShared(enemy,clan,missing) {if(active&&g==generation)visit(0)};return}
    }
    val at=order.getOrNull(position)?:run {next();return}
    val partial=indices.getOrNull(at)?.takeUnless {it in list.unresolvedIndices}?.let {list.partial(it)}
    val member=partial?.let {if(it.name!=null&&it.power!=null)WarMember(it.name,it.power)else null}
    if(member==null){visit(position+1);return}
-   if(fullStore.entry(enemy,clan,member)?.optBoolean("complete")==true||fullId(enemy,member) in fullProcessed){if(fullTarget?.let {BattleText.normalize(it)==BattleText.normalize(member.name)}==true)fullTarget=null;visit(position+1);return}
+   if(skipped(enemy,member)||fullStore.entry(enemy,clan,member)?.optBoolean("complete")==true||fullId(enemy,member) in fullProcessed){if(fullTarget?.let {BattleText.normalize(it)==BattleText.normalize(member.name)}==true)fullTarget=null;visit(position+1);return}
    fun defer(reason:String) {
     fullStore.log("member-deferred",JSONObject().put("name",member.name).put("reason",reason))
     fullProcessed+=fullId(enemy,member)
@@ -1553,40 +1675,44 @@ class WarPreparationOverlay(private val context:Context) {
     }
     val avatar=matches.single().avatar;val box=Rect(r.left+avatar.left,r.top+avatar.top,r.left+avatar.right,r.top+avatar.bottom)
     verifiedTap("memberAvatar",box) {
-     val savedDraft=fullStore.entry(enemy,clan,member)?.optJSONObject("draft")
-     shield.hide();app.battleOverlay.scanBatch(panel!!,status,{chrome?.dragging==true},resume=savedDraft,expectedName=member.name,navigation={close ->if(active&&g==generation)fullProfileAnchor=MemberProfileAnchor(member.name,width,height,eu.komars.forgescanner.model.PixelRegion(close.left,close.top,close.right,close.bottom))},checkpoint={draft ->
-      if(active&&g==generation){fullStore.save(enemy,clan,member,null,draft,"Odczyt w toku");saveFull("profile");fullStore.log("profile-fields",JSONObject().put("name",member.name).put("sections",draft.optJSONObject("_sections")).put("skills",draft.optJSONArray("skillScans")?.length()?:0).put("fairy",draft.optJSONObject("fairy")))}
-     }) {result ->
-      if(!active||g!=generation)return@scanBatch
-      val draft=result.getOrNull()?:(result.exceptionOrNull() as? BatchScanException)?.draft?:savedDraft
-      val accepted=if(draft!=null&&result.isSuccess)runCatching {FullProfileCodec.accept(member.name,draft)}else Result.failure(result.exceptionOrNull()?:IllegalStateException("Brak profilu."))
-      runCatching {fullStore.save(enemy,clan,member,accepted.getOrNull(),draft,accepted.exceptionOrNull()?.message)}.onFailure {fail(it.message?:"Nie zapisano profilu.");return@scanBatch}
-      if(accepted.isSuccess&&fullStore.pendingShare().length()>=10)flushShared()
-      val skills=draft?.optJSONArray("skillScans")
-      val quickSkills=if(skills==null)0 else (0 until skills.length()).count {skills.optJSONObject(it)?.optBoolean("fromProfile")==true}
-      fullStore.log("member-saved",JSONObject().put("name",member.name).put("complete",accepted.isSuccess)
-       .put("skills_from_profile",quickSkills).put("reason",accepted.exceptionOrNull()?.message?:""))
-      val reason=result.exceptionOrNull()?.message.orEmpty()
-      if(CaptureConnection.state!=CaptureState.READY||!GestureConnection.isConnected||reason.contains("dotknię")||reason.contains("Gest został przerwany")){fail("Skan wstrzymany. Zapisane profile zachowane. $reason");return@scanBatch}
-      fun closeAndNext() {GestureConnection.requestArm(width,height) {armed ->if(active&&g==generation){session=armed.getOrNull();if(session==null)fail(armed.exceptionOrNull()?.message?:"Ponownie włącz dostępność.")else {saveFull("closing-profile");closeFullProfile(knownProfile=result.isSuccess) {fullProcessed+=fullId(enemy,member);fullTarget=null;saveFull("roster");later(180){visit(position+1)}}}}}}
-      // Automatic reading failed again in the last retry round: the profile is still open in the game, so ask the player to fill it in.
-      if(accepted.isFailure&&fullAutoRetry>=maxAutoRetry) {
-       fullStore.log("member-manual",JSONObject().put("name",member.name).put("reason",accepted.exceptionOrNull()?.message?:""))
-       say("Nie odczytano profilu ${member.name} po $maxAutoRetry próbach. Uzupełnij go ręcznie — profil jest otwarty w grze.")
-       fullEditor.reviewExternal(draft?:JSONObject().put("name",member.name),onCancelled={if(active&&g==generation)closeAndNext()}) {profile ->
-        if(!active||g!=generation)return@reviewExternal
-        profile.put("name",member.name)
-        runCatching {fullStore.save(enemy,clan,member,profile,profile,null)}.onFailure {fail(it.message?:"Nie zapisano profilu.");return@reviewExternal}
-        fullStore.log("member-manual-saved",JSONObject().put("name",member.name));fullResult=null;uploadRequestId=null
-        closeAndNext()
-       }
-       return@scanBatch
-      }
-      closeAndNext()
-     }
+     scanOpenedMember(enemy,clan,member) {visit(position+1)}
     }
    }}
   };visit(0)
+ }
+ private fun scanOpenedMember(enemy:Boolean,clan:String,member:WarMember,identityConfirmedByUser:Boolean=false,next:()->Unit) {
+  val g=generation
+  val savedDraft=fullStore.entry(enemy,clan,member)?.optJSONObject("draft")
+  shield.hide();app.battleOverlay.scanBatch(panel!!,status,{chrome?.dragging==true},resume=savedDraft,expectedName=member.name,identityConfirmedByUser=identityConfirmedByUser,navigation={close ->if(active&&g==generation)fullProfileAnchor=MemberProfileAnchor(member.name,width,height,eu.komars.forgescanner.model.PixelRegion(close.left,close.top,close.right,close.bottom))},checkpoint={draft ->
+   if(active&&g==generation){fullStore.save(enemy,clan,member,null,draft,"Odczyt w toku");saveFull("profile");fullStore.log("profile-fields",JSONObject().put("name",member.name).put("sections",draft.optJSONObject("_sections")).put("skills",draft.optJSONArray("skillScans")?.length()?:0).put("fairy",draft.optJSONObject("fairy")))}
+  }) {result ->
+   if(!active||g!=generation)return@scanBatch
+   val draft=result.getOrNull()?:(result.exceptionOrNull() as? BatchScanException)?.draft?:savedDraft
+   val accepted=if(draft!=null&&result.isSuccess)runCatching {FullProfileCodec.accept(member.name,draft)}else Result.failure(result.exceptionOrNull()?:IllegalStateException("Brak profilu."))
+   runCatching {fullStore.save(enemy,clan,member,accepted.getOrNull(),draft,accepted.exceptionOrNull()?.message)}.onFailure {fail(it.message?:"Nie zapisano profilu.");return@scanBatch}
+   if(accepted.isSuccess&&fullStore.pendingShare().length()>=10)flushShared()
+   val skills=draft?.optJSONArray("skillScans")
+   val quickSkills=if(skills==null)0 else (0 until skills.length()).count {skills.optJSONObject(it)?.optBoolean("fromProfile")==true}
+   fullStore.log("member-saved",JSONObject().put("name",member.name).put("complete",accepted.isSuccess)
+    .put("skills_from_profile",quickSkills).put("reason",accepted.exceptionOrNull()?.message?:""))
+   val reason=result.exceptionOrNull()?.message.orEmpty()
+   if(CaptureConnection.state!=CaptureState.READY||!GestureConnection.isConnected||reason.contains("dotknię")||reason.contains("Gest został przerwany")){fail("Skan wstrzymany. Zapisane profile zachowane. $reason");return@scanBatch}
+   fun closeAndNext() {GestureConnection.requestArm(width,height) {armed ->if(active&&g==generation){session=armed.getOrNull();if(session==null)fail(armed.exceptionOrNull()?.message?:"Ponownie włącz dostępność.")else {saveFull("closing-profile");closeFullProfile(knownProfile=result.isSuccess) {fullProcessed+=fullId(enemy,member);fullTarget=null;saveFull("roster");later(180,next)}}}}}
+   // Ranking can ask while the exact profile is still open. War retries the missing profiles first.
+   if(accepted.isFailure&&(identityConfirmedByUser||rankingMode||fullAutoRetry>=maxAutoRetry)) {
+    fullStore.log("member-manual",JSONObject().put("name",member.name).put("reason",accepted.exceptionOrNull()?.message?:""))
+    say("Nie odczytano profilu ${member.name}. Uzupełnij brakujące dane. Profil jest otwarty w grze.")
+    fullEditor.reviewExternal(draft?:JSONObject().put("name",member.name),onCancelled={if(active&&g==generation){markMemberSkipped(enemy,member);closeAndNext()}}) {profile ->
+     if(!active||g!=generation)return@reviewExternal
+     profile.put("name",member.name)
+     runCatching {fullStore.save(enemy,clan,member,profile,profile,null)}.onFailure {fail(it.message?:"Nie zapisano profilu.");return@reviewExternal}
+     fullStore.log("member-manual-saved",JSONObject().put("name",member.name));fullResult=null;uploadRequestId=null
+     closeAndNext()
+    }
+    return@scanBatch
+   }
+   closeAndNext()
+  }
  }
  private fun closeFullProfile(attempt:Int=0,knownProfile:Boolean=false,next:()->Unit) {
   val g=generation
@@ -1594,12 +1720,15 @@ class WarPreparationOverlay(private val context:Context) {
   if(anchored!=null){fullStore.log("member-close-anchor",JSONObject().put("target",fullTarget?:JSONObject.NULL));screenFlow.observe(eu.komars.forgescanner.model.GameNavigationGraph.Screen.PROFILE);verifiedTap("memberProfileClose",Rect(anchored.left,anchored.top,anchored.right,anchored.bottom)){fullProfileAnchor=null;next()};return}
   if(attempt>3){fail("Nie potwierdzono powrotu do listy klanu. Zamknij szczegóły i wybierz Kontynuuj. Profile zapisane.");return}
   cleanFrame {image ->
+   val observed=memberDetector.observe(image,allowProfileCandidate=fullTarget!=null)
+   val profileClose=memberDetector.profileClose(image,observed)
    val observedScene=scene(image);val roster=observedScene.states.contains("roster")
-   if(roster){image.recycle();fullProfileAnchor=null;screenFlow.observe(eu.komars.forgescanner.model.GameNavigationGraph.Screen.ROSTER);next();return@cleanFrame}
-   val observed=memberDetector.observe(image)
-   val close=eu.komars.forgescanner.vision.CloseButtonDetector().detect(image);image.recycle()
+   if(roster&&profileClose==null){image.recycle();fullProfileAnchor=null;screenFlow.observe(eu.komars.forgescanner.model.GameNavigationGraph.Screen.ROSTER);next();return@cleanFrame}
+   val close=profileClose?:if(observedScene.states.any {it in listOf("researchModal","bonus")})
+    eu.komars.forgescanner.vision.CloseButtonDetector().detect(image)else null
+   image.recycle()
    val detail=observed.panel
-   if(observed.profile&&close!=null) {screenFlow.observe(eu.komars.forgescanner.model.GameNavigationGraph.Screen.PROFILE);verifiedTap("memberProfileClose",close){fullProfileAnchor=null;next()};return@cleanFrame}
+   if(profileClose!=null) {screenFlow.observe(eu.komars.forgescanner.model.GameNavigationGraph.Screen.PROFILE);verifiedTap("memberProfileClose",profileClose){fullProfileAnchor=null;next()};return@cleanFrame}
    val outside=if(detail!=null&&!observed.profile&&detail.width>detail.height*1.5)WeaponDetailLayout.outsideArea(detail,width,height)else null
    val target=outside?.let {Rect(it.left,it.top,it.right,it.bottom)}?:close?.takeIf {observedScene.states.any {it in listOf("researchModal","bonus")}}
    if(target==null){fail("Nie znaleziono bezpiecznego zamknięcia szczegółów. Zapis profili zachowany.");return@cleanFrame}
@@ -1638,7 +1767,16 @@ class WarPreparationOverlay(private val context:Context) {
  private fun addFullRecovery() {
   val entries=fullEntries();val missing=entries.filter {it.third?.optBoolean("complete")!=true}
   if(entries.isNotEmpty())recovery?.addView(ScannerAppearance.overlayAction(context,"Profile: ${entries.size-missing.size}/${entries.size} · sprawdź / popraw") {
-   fullEditor.choose(entries.sortedBy {it.third?.optBoolean("complete")==true}.map {(enemy,member,entry)->"${if(enemy)"Rywal"else"Nasi"} · ${member.name}: ${entry?.optString("error").orEmpty().take(70)}" to {
+   fullEditor.chooseProfile(entries.sortedWith(compareBy({it.third?.optBoolean("complete")==true},{it.second.name!=fullTarget}))
+    .map {(enemy,member,entry)->
+     val complete=entry?.optBoolean("complete")==true
+     val status=when {
+      complete->"Kompletny"
+      skipped(enemy,member)->"Pominięty · brakuje danych"
+      else->entry?.optString("error").orEmpty().take(70).ifBlank {"Brakuje danych"}
+     }
+     val label=ScannerAppearance.profileStatusLabel("${if(enemy)"Rywal"else"Nasi"} · ${member.name}\n$status",complete)
+     label to {
     fullEditor.reviewExternal(entry?.optJSONObject("profile")?:entry?.optJSONObject("draft")?:JSONObject().put("name",member.name)) {profile ->
      profile.put("name",member.name);fullStore.save(enemy,if(enemy)enemyClan!!else ownClan!!,member,profile,profile,null);fullResult=null;uploadRequestId=null;retryStep={computeFullWar()};clearRecoveryActions();addFullRecovery()
     }
@@ -1647,7 +1785,10 @@ class WarPreparationOverlay(private val context:Context) {
   // Only offered when something is actually missing; a complete list has nothing to resume.
   if(missing.isNotEmpty())recovery?.addView(ScannerAppearance.overlayAction(context,"Doczytaj brakujące profile (${missing.size})") {
    missing.firstOrNull()?.let {(enemy,member,_)->fullSide=enemy;fullTarget=member.name}
-   missing.forEach {(enemy,member,_)->fullProcessed.remove(fullId(enemy,member))};saveFull("member",true)
+   missing.forEach {(enemy,member,_)->
+    fullSkipped.remove(skipKey(enemy,member))
+    fullProcessed.remove(fullId(enemy,member))
+   };saveFull("member",true)
    if(fullComputing){context.startActivity(android.content.Intent(context,BattleActivity::class.java).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK));stop()}
    else recoverAction {resumeFullWork()}
   })
@@ -1659,7 +1800,7 @@ class WarPreparationOverlay(private val context:Context) {
   */
  private fun retryMissingAutomatically(ownOnly:Boolean):Boolean {
   if(fullAutoRetry>=maxAutoRetry||CaptureConnection.state!=CaptureState.READY)return false
-  val missing=fullEntries().filter {(enemy,_,entry)->(!ownOnly||!enemy)&&entry?.optBoolean("complete")!=true}
+  val missing=fullEntries().filter {(enemy,member,entry)->(!ownOnly||!enemy)&&!skipped(enemy,member)&&entry?.optBoolean("complete")!=true}
   if(missing.isEmpty())return false
   fullAutoRetry++
   fullStore.log("auto-retry",JSONObject().put("round",fullAutoRetry).put("missing",JSONArray(missing.map {it.second.name})))
@@ -1715,7 +1856,7 @@ class WarPreparationOverlay(private val context:Context) {
   val g=generation
   app.mobile.sendClanRanking(body) {result ->
    fullStore.log("upload",JSONObject().put("kind","ranking").put("members",members.size).put("ok",result.isSuccess).put("error",result.exceptionOrNull()?.message?:JSONObject.NULL))
-   if(active&&g==generation)result.fold({status?.text="Ranking zapisany. Otwórz /report clan-ranking na Discordzie.";warning?.visibility=View.GONE;active=false;addReturnToApp()},{fail(it.message?:"Nie udało się wysłać rankingu.")})}
+   if(active&&g==generation)result.fold({status?.text="Ranking zapisany. Otwórz /report clan-ranking na Discordzie.";finishReport()},{fail(it.message?:"Nie udało się wysłać rankingu.")})}
  }
  private fun confirmListUpdate() {
   val g=generation
@@ -1788,7 +1929,7 @@ class WarPreparationOverlay(private val context:Context) {
       "\nBitka (+1000 pkt), model eksperymentalny: ${nearest}% przy najbliższym celu, ${focus}% przy skupieniu ognia."
     } ?: if(fullMode) "\nBrak szacunku bitki dla tego skanu." else ""
     status?.text=savedStatus+brawlStatus
-    warning?.visibility=View.GONE;active=false;if(fullMode&&asPreview)addFullRecovery();addReturnToApp()},{error->
+    finishReport();if(fullMode&&asPreview)addFullRecovery()},{error->
      if(!testMode&&!previewOnly&&!overwrite&&canOverrideList&&error.message.orEmpty().let {it.contains("Potwierdź aktualizację")||it.contains("już istnieje")}){confirmListUpdate();return@fold}
      fail(error.message?:"Nie udało się wysłać listy.");if(fullMode)addFullRecovery()})}
  }

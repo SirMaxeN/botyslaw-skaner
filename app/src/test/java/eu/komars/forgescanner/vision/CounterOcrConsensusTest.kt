@@ -40,7 +40,8 @@ class CounterOcrConsensusTest {
     @Test fun staleOrMissingFrameNeverCreatesConsensus() {
         assertTrue(CounterOcrConsensus.combine(listOf(frame(188)), ScanTarget.MOUNT_COST).requiresConfirmation)
         val missing = OcrAnalysis(emptyList(), emptyList(), "no fresh source image", true)
-        assertTrue(CounterOcrConsensus.combine(listOf(frame(188), frame(188), missing), ScanTarget.MOUNT_COST).requiresConfirmation)
+        assertTrue(CounterOcrConsensus.combine(listOf(frame(188), missing), ScanTarget.MOUNT_COST).requiresConfirmation)
+        assertFalse(CounterOcrConsensus.combine(listOf(frame(188), frame(188), missing), ScanTarget.MOUNT_COST).requiresConfirmation)
     }
 
     @Test fun mislabeledValuesFromTheOtherCounterAreExcluded() {
@@ -102,14 +103,78 @@ class CounterOcrConsensusTest {
         assertTrue(CounterOcrConsensus.combine(frames, ScanTarget.HAMMERS).requiresConfirmation)
         val settled = CounterOcrConsensus.combine(frames, ScanTarget.HAMMERS, listOf(9383L, 9383L, 9383L))
         assertFalse(settled.requiresConfirmation)
-        assertEquals(9383L, settled.candidates.first().value)
-        assertTrue(CounterOcrConsensus.combine(frames, ScanTarget.HAMMERS, listOf(9383L, null, 9383L)).requiresConfirmation)
+        assertEquals(9383L, settled.candidates.single().value)
+        // Two of three game-font frames agreeing with an OCR candidate are enough (fewer prompts, 2026-11-16).
+        assertEquals(9383L, CounterOcrConsensus.combine(frames, ScanTarget.HAMMERS, listOf(9383L, null, 9383L)).candidates.single().value)
         assertTrue(CounterOcrConsensus.combine(frames, ScanTarget.HAMMERS, listOf(1234L, 1234L, 1234L)).requiresConfirmation)
     }
 
-    @Test fun gameFontNeverOverridesAStableOcrResult() {
-        val stable = CounterOcrConsensus.combine(List(3) { frame(9383) }, ScanTarget.HAMMERS, listOf(9883L, 9883L, 9883L))
-        assertFalse(stable.requiresConfirmation)
-        assertEquals(9383L, stable.candidates.single().value)
+    @Test fun disagreementBetweenTwoStableReadersRequiresReview() {
+        val result = CounterOcrConsensus.combine(List(3) { frame(9383) }, ScanTarget.HAMMERS, listOf(9883L, 9883L, 9883L))
+        assertTrue(result.requiresConfirmation)
+        assertEquals(setOf(9383L, 9883L), result.candidates.map { it.value }.toSet())
+    }
+
+    @Test fun strictFontCanReadZeroAndRedCountersWhenTextOcrMissesThem() {
+        val missing = List(3) { OcrAnalysis(emptyList(), emptyList(), "Brak OCR", true) }
+        for (value in listOf(0L, 835L)) {
+            val result = CounterOcrConsensus.combine(missing, ScanTarget.HAMMERS, List(3) { value })
+            assertFalse(result.requiresConfirmation)
+            assertEquals(value, result.candidates.single().value)
+        }
+        assertTrue(CounterOcrConsensus.combine(missing, ScanTarget.HAMMERS, listOf(0L, null, 0L)).requiresConfirmation)
+        assertTrue(CounterOcrConsensus.combine(missing, ScanTarget.MOUNT_COST, List(3) { 0L }).candidates.isEmpty())
+    }
+
+    @Test fun aValueInEveryReadingFrameWinsOverAOneFrameAlternative() {
+        val result = CounterOcrConsensus.combine(listOf(frame(188), frame(188, 198), frame(188)), ScanTarget.SKILL_COST)
+        assertFalse(result.requiresConfirmation)
+        assertEquals(188L, result.candidates.single().value)
+        val twoFrames = CounterOcrConsensus.combine(listOf(frame(9880), frame(9880), OcrAnalysis(emptyList(), emptyList())), ScanTarget.TICKETS)
+        assertEquals(9880L, twoFrames.candidates.single().value)
+    }
+
+    @Test fun majorityStillAsksOnRealContradictions() {
+        // One frame says something else entirely: no silent guess without the game font.
+        assertTrue(CounterOcrConsensus.combine(listOf(frame(888), frame(388), frame(388)), ScanTarget.HAMMERS).requiresConfirmation)
+        // The alternative also appears in two frames: a tie.
+        assertTrue(CounterOcrConsensus.combine(listOf(frame(188, 198), frame(188, 198), frame(188)), ScanTarget.SKILL_COST).requiresConfirmation)
+        // A game-font majority for another value overrules the OCR majority only by asking.
+        assertTrue(CounterOcrConsensus.combine(listOf(frame(188), frame(188, 198), frame(188)), ScanTarget.SKILL_COST, listOf(198L, 198L, null)).requiresConfirmation)
+        // A different abbreviation contradicts; the same abbreviated value does not.
+        assertTrue(CounterOcrConsensus.combine(listOf(frame(9876), frame(9876), frame(9900, approximate = true)), ScanTarget.TICKETS).requiresConfirmation)
+        val consistent = CounterOcrConsensus.combine(listOf(frame(9876), frame(9876), frame(9880, approximate = true)), ScanTarget.TICKETS)
+        assertFalse(consistent.requiresConfirmation)
+        assertEquals(9876L, consistent.candidates.single().value)
+    }
+
+    @Test fun gameFontMajorityResolvesAOneFrameOcrSlip() {
+        val result = CounterOcrConsensus.combine(listOf(frame(888), frame(388), frame(388)), ScanTarget.HAMMERS, listOf(388L, 388L, null))
+        assertFalse(result.requiresConfirmation)
+        assertEquals(388L, result.candidates.single().value)
+    }
+
+    @Test fun moreBurstsTurnAThreeFrameDisagreementIntoAConfidentReading() {
+        val first = listOf(frame(888), frame(388), frame(388))
+        assertTrue(CounterOcrConsensus.combine(first, ScanTarget.HAMMERS).requiresConfirmation)
+        val nine = first + listOf(frame(388), frame(388), frame(388), frame(388), frame(388, 888), OcrAnalysis(emptyList(), emptyList()))
+        val result = CounterOcrConsensus.combine(nine, ScanTarget.HAMMERS)
+        assertFalse(result.requiresConfirmation)
+        assertEquals(388L, result.candidates.single().value)
+    }
+
+    @Test fun moreBurstsStillAskOnARealTieAndKeepFontVotesPerFrame() {
+        val tie = List(3) { frame(888) } + List(3) { frame(388) }
+        assertTrue(CounterOcrConsensus.combine(tie, ScanTarget.HAMMERS).requiresConfirmation)
+        // Font votes are aligned with all six frames and need a half-majority.
+        val settled = CounterOcrConsensus.combine(listOf(frame(888), frame(388), frame(388), frame(388), frame(888), frame(388)), ScanTarget.HAMMERS,
+            listOf(388L, 388L, null, 388L, null, 388L))
+        assertEquals(388L, settled.candidates.single().value)
+    }
+
+    @Test fun abbreviatedOcrDoesNotGetOverriddenByDigitsMissingTheSuffix() {
+        val result = CounterOcrConsensus.combine(List(3) { frame(1250, approximate = true) }, ScanTarget.HAMMERS, List(3) { 125L })
+        assertTrue(result.requiresConfirmation)
+        assertEquals(1250L, result.candidates.first().value)
     }
 }

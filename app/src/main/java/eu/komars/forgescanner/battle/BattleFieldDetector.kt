@@ -10,25 +10,42 @@ import kotlin.math.roundToInt
 /** Same contract as resource setup: suggest, show, confirm; never save or navigate here. */
 class BattleFieldDetector(private val recognizer:TextRecognizer) {
     data class Proposal(val region:Rect,val reason:String)
-    private fun layout(bitmap:Bitmap):BattleSetupGeometry.Layout {
+    private fun layout(bitmap:Bitmap,allowProfileCandidate:Boolean=false):BattleSetupGeometry.Layout {
         val scale=minOf(1.0,480.0/bitmap.width,1200.0/bitmap.height)
         val w=(bitmap.width*scale).roundToInt();val h=(bitmap.height*scale).roundToInt()
         val reduced=Bitmap.createScaledBitmap(bitmap,w,h,true)
         return try {
             val pixels=IntArray(w*h);reduced.getPixels(pixels,0,w,0,0,w,h)
-            val found=BattleSetupGeometry(w,h,pixels).detect()
-            BattleSetupGeometry.Layout(found.regions.mapValues { (_,q) ->
+            val geometry=BattleSetupGeometry(w,h,pixels)
+            val detected=geometry.detect()
+            val found=if(allowProfileCandidate&&!detected.profile)
+                detected.panel?.let(geometry::profileCandidate)?:detected else detected
+            val scaled=BattleSetupGeometry.Layout(found.regions.mapValues { (_,q) ->
                 eu.komars.forgescanner.model.PixelRegion((q.left/scale).roundToInt(),(q.top/scale).roundToInt(),(q.right/scale).roundToInt(),(q.bottom/scale).roundToInt())
-            },found.profile,found.panel?.let { q -> eu.komars.forgescanner.model.PixelRegion((q.left/scale).roundToInt(),(q.top/scale).roundToInt(),(q.right/scale).roundToInt(),(q.bottom/scale).roundToInt()) })
+            },found.profile,found.panel?.let { q -> eu.komars.forgescanner.model.PixelRegion((q.left/scale).roundToInt(),(q.top/scale).roundToInt(),(q.right/scale).roundToInt(),(q.bottom/scale).roundToInt()) },found.needsHeaderProof)
+            if(scaled.needsHeaderProof&&profileClose(bitmap,scaled)==null)
+                BattleSetupGeometry.Layout(emptyMap(),false,scaled.panel) else scaled
         } finally { if(reduced!==bitmap) reduced.recycle() }
     }
-    fun observe(bitmap:Bitmap)=layout(bitmap)
+    fun observe(bitmap:Bitmap,allowProfileCandidate:Boolean=false)=layout(bitmap,allowProfileCandidate)
+
+    /** Scope the X to the foreground player card. The dimmed clan screen can have its own X. */
+    fun profileClose(bitmap:Bitmap,layout:BattleSetupGeometry.Layout):Rect? {
+        val card=layout.panel?.takeIf {layout.profile}?:return null
+        val radius=(card.width*.074).roundToInt()
+        val center=(card.left+card.right)/2
+        val expected=Rect(center-radius,(card.bottom-radius).coerceAtLeast(0),
+            center+radius,(card.bottom+radius).coerceAtMost(bitmap.height))
+        val close=CloseButtonDetector().detect(bitmap,expected)?:return null
+        return close.takeIf { kotlin.math.abs(it.centerX()-center)<=radius/2 &&
+            kotlin.math.abs(it.centerY()-card.bottom)<=radius }
+    }
     fun detect(bitmap:Bitmap,key:String,callback:(Proposal?)->Unit) {
         val found=layout(bitmap)
         fun bounds(key:String)=found.regions[key]?.let { Rect(it.left,it.top,it.right,it.bottom) }
         val geometric=bounds(key)
         if(key=="close") {
-            callback(CloseButtonDetector().detect(bitmap)?.let { Proposal(it,"Rozpoznano czerwone zamknięcie z białym X.") });return
+            callback((if(found.profile)profileClose(bitmap,found)else CloseButtonDetector().detect(bitmap))?.let { Proposal(it,"Rozpoznano czerwone zamknięcie z białym X.") });return
         }
         if(key=="back") {
             val target=found.panel?.takeUnless { found.profile }?.let { WeaponDetailLayout.outsideArea(it,bitmap.width,bitmap.height) }

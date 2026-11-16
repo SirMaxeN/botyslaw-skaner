@@ -1,5 +1,13 @@
 # Change log
 
+
+## 1.6.0 (57) — Google Play (2026-11-16, resource scan robustness)
+
+- **Tab not switched after a number prompt (after tickets, before shells):** our prompt takes focus from the game; the next tab tap came within milliseconds and the game (Unity) dropped it, then the next counter was read on the wrong screen. Navigation now waits ~0.7 s and for the game to be in front after any prompt, and tab taps (skills/pets/tech) — or any tap shortly after a prompt — are checked on one fresh frame; a clearly different screen starts the existing recovery that taps again.
+- **Fewer "choose the number" prompts:** a value present in every frame that read anything (and alternatives in at most one frame) is accepted; the game-font reader settles with 2 of 3 frames; consistent abbreviations ("≈ 9,88k" vs 9 876) no longer count as conflicts.
+- **More data instead of asking:** when frames disagree, up to two more bursts of three fresh frames are taken and all frames (up to 9) are judged together (clear majority ≥ 60 %, rare slips allowed); real ties and two readers that disagree still ask.
+- **Resource scan log:** `files/logs/resource-scan.jsonl` records steps, readings, prompts and destination checks for diagnosis.
+
 ## 1.5.1 (48) — AUTO Test (clan race, clan research, extra resources)
 
 Fifth test build (2026-11-09):

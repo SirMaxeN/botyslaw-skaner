@@ -116,6 +116,7 @@ class AutoInventoryDriver {
                 if (active && generation == token) { currentCount = count; emit(if (waitingForEnd) END_HINT else "Przewijam i liczę listę.") }
             },
             endObservation = { status -> observeEnd(status, token) },
+            dragInProgress = { gestureInFlight || gestureHeld },
             sourceFrameTimestamp = { timestamp ->
                 if (active && generation == token) {
                     planner?.observeSourceFrame(timestamp)
@@ -364,7 +365,13 @@ class AutoInventoryDriver {
             InventoryEndDetector.Status.VISIBLE_END -> {
                 waitingForEnd = true
                 passStrokes.clear(); clearStrokeCaptureWait()
-                stopFinger { if (running(token)) recorder?.stop() }
+                stopFinger {
+                    if (running(token)) {
+                        val error = releaseError
+                        if (error != null) fail(error.message ?: "Nie udało się zatrzymać przewijania.", token)
+                        else recorder?.stop()
+                    }
+                }
             }
         }
     }

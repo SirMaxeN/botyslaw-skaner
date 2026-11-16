@@ -9,7 +9,7 @@ class InventoryEndDetector {
     private var stableSince = -1L
     private var samples = 0
 
-    fun observe(frame: GrayScrollFrame, rowHeight: Int, nowMillis: Long, columns: Int = 5): Status {
+    fun observe(frame: GrayScrollFrame, rowHeight: Int, nowMillis: Long, columns: Int = 5, dragInProgress: Boolean = false): Status {
         require(rowHeight >= 8 && columns in 1..12)
         val cellWidth = frame.width / columns
         // Rough manual selections can contain the modal's vertical border. Inspect
@@ -59,6 +59,9 @@ class InventoryEndDetector {
         // one completely empty row pitch below it. Shorter full-row tails are
         // resolved by the driver's repeated fresh blocked gestures, or Finish.
         val longFooter = footer >= rowHeight
+        // The game can snap back as soon as the gesture is released. A full
+        // empty row below visible items is already evidence during the drag.
+        if (dragInProgress && longFooter && bottomCells.any { it }) return Status.VISIBLE_END
         val candidate = lastContent >= 0 && (longFooter || partialLastRow)
         val old = previous
         previous = frame

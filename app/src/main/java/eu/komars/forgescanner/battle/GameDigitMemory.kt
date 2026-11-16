@@ -9,9 +9,10 @@ import android.graphics.Bitmap
  */
 class GameDigitMemory(context:Context) {
  companion object {
+  private const val LOCAL_SAMPLES_PER_DIGIT = 32
+  private const val SHARED_SAMPLES_PER_DIGIT = 96
   /** Set by ScannerApplication so readers without a Context (resource counters) can use the font. */
   @Volatile var shared:GameDigitMemory?=null
-   set(value) {field=value;eu.komars.forgescanner.model.CounterConfirmations.listener=value?.let {memory->{key,confirmed->memory.confirmCounter(key,confirmed)}}}
  }
  private val prefs=context.getSharedPreferences("game_digit_font_v1",0)
  private val bundled:List<GameDigitFont.Sample> by lazy {
@@ -25,29 +26,26 @@ class GameDigitMemory(context:Context) {
  fun exportLearned():List<GameDigitFont.Sample> = learned()
  fun importShared(fresh:List<GameDigitFont.Sample>) {
   if(fresh.isEmpty())return
-  val kept=(sharedSamples()+fresh).distinctBy {it.digit to it.glyph.bits}.groupBy {it.digit}.values.flatMap {it.takeLast(24)}
+  val kept=(sharedSamples()+fresh).distinctBy {it.digit to it.glyph.bits}.groupBy {it.digit}.values.flatMap {it.takeLast(SHARED_SAMPLES_PER_DIGIT)}
   prefs.edit().putString("shared_samples",GameDigitFont.encode(kept)).apply()
  }
  private fun pixels(image:Bitmap):IntArray=IntArray(image.width*image.height).also {image.getPixels(it,0,image.width,0,0,image.width,image.height)}
  fun read(image:Bitmap):Int?=runCatching {GameDigitFont.read(image.width,image.height,pixels(image),samples())}.getOrNull()
  /** Plain counter ("9383") from raw pixels; null unless every digit is unambiguous. */
- fun readCounter(w:Int,h:Int,pixels:IntArray):Long?=runCatching {GameDigitFont.readCounter(w,h,pixels,samples())}.getOrNull()
- /** Learns a counter confirmed by three agreeing OCR frames (only when its digit count matches). */
- fun learnCounter(w:Int,h:Int,pixels:IntArray,value:Long) {
-  val glyphs=runCatching {GameDigitFont.segment(w,h,pixels,prefixed=false)}.getOrNull()?:return
-  val digits=value.toString().map {it-'0'}
-  // A leading resource icon may precede the digits: keep only the trailing glyphs.
-  if(glyphs.size<digits.size)return
-  store(glyphs.takeLast(digits.size).zip(digits).map {(g,d)->GameDigitFont.Sample(d,g)})
+ fun readCounter(w:Int,h:Int,pixels:IntArray):Long?=runCatching {GameDigitFont.readCounterShape(w,h,pixels,samples())}.getOrNull()
+ private fun learnCounter(w:Int,h:Int,pixels:IntArray,value:Long) {
+  store(GameDigitFont.learnCounter(w,h,pixels,value))
  }
  private fun store(fresh:List<GameDigitFont.Sample>) {
   if(fresh.isEmpty())return
-  val kept=(learned()+fresh).groupBy {it.digit}.values.flatMap {it.takeLast(12)}
+  val kept=(learned()+fresh).asReversed().distinctBy {it.digit to it.glyph.bits}.asReversed()
+   .groupBy {it.digit}.values.flatMap {it.takeLast(LOCAL_SAMPLES_PER_DIGIT)}
   prefs.edit().putString("samples",GameDigitFont.encode(kept)).apply()
  }
  private val pendingCounters=java.util.concurrent.ConcurrentHashMap<String,Pair<Long,Triple<Int,Int,IntArray>>>()
  /** Keeps the last crop of a counter for ten minutes, so a manual confirmation can teach its digits. */
  fun rememberCounterCrop(key:String,w:Int,h:Int,pixels:IntArray) {pendingCounters[key]=System.currentTimeMillis() to Triple(w,h,pixels)}
+ fun discardCounterCrop(key:String) {pendingCounters.remove(key)}
  /** The user confirmed this value for the counter: learn from its last crop if the font could not read it. */
  fun confirmCounter(key:String,value:Long) {
   val (at,crop)=pendingCounters.remove(key)?:return
@@ -55,7 +53,7 @@ class GameDigitMemory(context:Context) {
   val (w,h,p)=crop
   if(readCounter(w,h,p)!=value)learnCounter(w,h,p,value)
  }
- /** Adds the digits of a confirmed label; keeps at most 12 learned samples per digit. */
+ /** Adds the digits of a confirmed label to the local sample bank. */
  fun learn(image:Bitmap,value:Int) {
   store(runCatching {GameDigitFont.learn(image.width,image.height,pixels(image),value)}.getOrDefault(emptyList()))
  }
