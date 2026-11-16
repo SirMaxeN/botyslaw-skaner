@@ -15,6 +15,12 @@ class SupportersClient(context: Context, private val demoMode: () -> Boolean = {
 
     private val settings = context.applicationContext.getSharedPreferences("supporters", Context.MODE_PRIVATE)
 
+    /** Key of what the full intro was last shown for: app version + the supporters' names (any added/removed name). */
+    fun introKey(versionCode: Int, supporters: Supporters) = introKey(versionCode, supporters.names)
+    /** Full (slow) intro on the first start, after an app update and when the people on the list changed; quick otherwise. */
+    fun needsFullIntro(key: String) = settings.getString("introSeen", null) != key
+    fun markIntroSeen(key: String) = settings.edit().putString("introSeen", key).apply()
+
     fun cached(): Supporters = settings.getString("json", null)?.let { runCatching { parse(it) }.getOrNull() } ?: DEFAULT
 
     /** Downloads the current list on a background thread and keeps it for the next start. */
@@ -46,6 +52,10 @@ class SupportersClient(context: Context, private val demoMode: () -> Boolean = {
         const val URL_LIST = "https://komars.eu/discord/botyslaw-smith/mobile/supporters"
         val DEFAULT = Supporters("Dziękuję za wsparcie ❤",
             listOf("PolskiWariat", "EvilMosquito", "MarianoItaliano", "XlawoK", "KrecikPulpecik", "UltraLegion", "Skubi1990"))
+
+        /** Same key for the same people in any order; a new, removed or renamed name changes it. */
+        fun introKey(versionCode: Int, names: List<String>) =
+            "$versionCode:${names.map { it.lowercase() }.sorted().joinToString("\u0000").hashCode()}"
 
         fun parse(json: String): Supporters {
             val data = JSONObject(json)

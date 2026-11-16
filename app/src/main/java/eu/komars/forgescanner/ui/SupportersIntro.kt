@@ -33,7 +33,11 @@ object SupportersIntro {
     private const val TAG = "supporters-intro"
     private val HEART = S.STEP_COLORS[5]
 
-    fun show(activity: Activity, supporters: SupportersClient.Supporters) {
+    /**
+     * [full]: the first start or the first after an update / a list change: everything lasts [SupportersLayout.FULL]
+     * times longer. [onClosed] runs once when the intro closes, by itself or skipped (it still counts as seen).
+     */
+    fun show(activity: Activity, supporters: SupportersClient.Supporters, full: Boolean = false, onClosed: () -> Unit = {}) {
         if (supporters.names.isEmpty()) return
         val decor = activity.window.decorView as ViewGroup
         if (decor.findViewWithTag<View>(TAG) != null) return
@@ -46,6 +50,7 @@ object SupportersIntro {
         fun dismiss() {
             if (closing) return
             closing = true
+            onClosed()
             animators.forEach { it.cancel() }
             root.animate().alpha(0f).setDuration(320).withEndAction { decor.removeView(root) }.start()
         }
@@ -127,7 +132,7 @@ object SupportersIntro {
             // Animations off in system settings: a still screen that closes by itself.
             listOf(heart, title, subtitle, hint).forEach { it.alpha = 1f; it.scaleX = 1f; it.scaleY = 1f; it.translationY = 0f }
             chips.forEach { it.alpha = 1f; it.translationY = 0f }
-            root.postDelayed({ dismiss() }, 3000)
+            root.postDelayed({ dismiss() }, if (full) 3000L * SupportersLayout.FULL else 3000L)
             return
         }
 
@@ -160,14 +165,14 @@ object SupportersIntro {
         scroll.post {
             if (closing) return@post
             val distance = (grid.height - scroll.height).coerceAtLeast(0)
-            if (distance == 0) { root.postDelayed({ dismiss() }, 2600); return@post }
+            if (distance == 0) { root.postDelayed({ dismiss() }, if (full) 2600L * SupportersLayout.FULL else 2600L); return@post }
             ValueAnimator.ofInt(0, distance).apply {
-                duration = SupportersLayout.scrollMillis(distance / density); startDelay = 1100; interpolator = LinearInterpolator()
+                duration = SupportersLayout.scrollMillis(distance / density, full); startDelay = if (full) 2200 else 1100; interpolator = LinearInterpolator()
                 addUpdateListener { scroll.scrollTo(0, it.animatedValue as Int) }
                 addListener(object : android.animation.AnimatorListenerAdapter() {
                     private var cancelled = false
                     override fun onAnimationCancel(animation: android.animation.Animator) { cancelled = true }
-                    override fun onAnimationEnd(animation: android.animation.Animator) { if (!cancelled) root.postDelayed({ dismiss() }, 900) }
+                    override fun onAnimationEnd(animation: android.animation.Animator) { if (!cancelled) root.postDelayed({ dismiss() }, if (full) 900L * SupportersLayout.FULL else 900L) }
                 })
                 animators += this; start()
             }
@@ -190,5 +195,9 @@ object SupportersLayout {
     }
 
     /** Auto-scroll time: unhurried for short lists, capped so a long list still passes quickly. */
-    fun scrollMillis(distanceDp: Float): Long = (distanceDp / 110f * 1000f).toLong().coerceIn(1200L, 9000L)
+    fun scrollMillis(distanceDp: Float, full: Boolean = false): Long =
+        (distanceDp / 110f * 1000f).toLong().coerceIn(1200L, 9000L) * (if (full) FULL else 1)
+
+    /** How many times longer the full intro (first start, after an update or a list change) lasts. */
+    const val FULL = 3
 }

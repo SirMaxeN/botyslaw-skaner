@@ -2,6 +2,10 @@
 
 
 
+## 1.6.8 (65) — Google Play (2026-11-16, full credits once)
+
+- **Full credits once:** the thank-you intro runs 3x longer (scroll, pauses) on the first start, after an app update and when the people on the list change (added, removed or renamed; order does not matter). Afterwards it is quick again. Skipping it with a tap or Back also marks it as seen. A new list downloaded in the background counts from the next start.
+
 ## 1.6.7 (64) — AUTO Test (2026-11-16, thank-you intro)
 
 - **Supporters intro at app start:** "Dziękuję za wsparcie ❤" with the supporters' names as colored chips (one column for a handful, up to four as the list grows), a slow automatic scroll through the whole list (110 dp/s, at most 9 s), then a fade to the home screen. A tap anywhere or Back skips it; shown once per start, not after rotation or returning to the home screen. With system animations off it is a still screen that closes after 3 s.

@@ -31,7 +31,9 @@ class HomeActivity : Activity() {
         // Thank-you intro once per app start (not after rotation or when returning from another screen).
         if (state == null && intent.getBooleanExtra(EXTRA_INTRO, false)) {
             val supporters = eu.komars.forgescanner.sync.SupportersClient(this) { app.demo }
-            eu.komars.forgescanner.ui.SupportersIntro.show(this, supporters.cached())
+            val list = supporters.cached()
+            val key = supporters.introKey(BuildConfig.VERSION_CODE, list)
+            eu.komars.forgescanner.ui.SupportersIntro.show(this, list, full = supporters.needsFullIntro(key)) { supporters.markIntroSeen(key) }
             supporters.refresh()
         }
     }

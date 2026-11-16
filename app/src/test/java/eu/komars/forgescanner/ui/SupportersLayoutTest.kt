@@ -1,6 +1,7 @@
 package eu.komars.forgescanner.ui
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Test
 
 class SupportersLayoutTest {
@@ -17,5 +18,17 @@ class SupportersLayoutTest {
         assertEquals(1200L, SupportersLayout.scrollMillis(40f))
         assertEquals(4000L, SupportersLayout.scrollMillis(440f))
         assertEquals(9000L, SupportersLayout.scrollMillis(20000f))
+        assertEquals(12000L, SupportersLayout.scrollMillis(440f, full = true)) // first start / after an update: 3x
+    }
+}
+
+class SupportersIntroKeyTest {
+    private fun key(code: Int, vararg names: String) = eu.komars.forgescanner.sync.SupportersClient.introKey(code, names.toList())
+
+    @Test fun fullIntroAgainAfterAnUpdateOrAChangeOfPeople() {
+        assertEquals(key(65, "Ala", "Bob"), key(65, "Bob", "Ala"))            // order only: still seen
+        assertNotEquals(key(65, "Ala", "Bob"), key(66, "Ala", "Bob"))         // app update
+        assertNotEquals(key(65, "Ala", "Bob"), key(65, "Ala", "Bob", "Cez"))  // new supporter
+        assertNotEquals(key(65, "Ala", "Bob"), key(65, "Ala"))                // removed
     }
 }
