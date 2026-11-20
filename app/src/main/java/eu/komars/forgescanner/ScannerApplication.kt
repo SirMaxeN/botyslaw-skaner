@@ -13,6 +13,8 @@ import eu.komars.forgescanner.sync.MobileSyncClient
 private const val SETUP_SCHEMA = 3
 
 class ScannerApplication : Application() {
+    /** Uploads local scan/war/ranking logs to the bot, so problems can be checked without a USB cable. */
+    val logs by lazy { eu.komars.forgescanner.sync.LogUploader(this, mobile) { demo } }
     val knowledge by lazy { eu.komars.forgescanner.sync.SharedKnowledgeSync(this, mobile) }
     var session = ScanSession()
         private set

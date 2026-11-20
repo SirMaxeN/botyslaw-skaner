@@ -300,6 +300,7 @@ class AutoScanOverlay(private val context: Context, private val calibrations: Ca
             .put("started_at", scanStartedAt?.toString()).put("events", org.json.JSONArray(scanEvents.toList()))
         scanEvents.clear()
         runCatching { (context.applicationContext as ScannerApplication).mobile.sendDiagnostics(payload) {} }
+        runCatching { (context.applicationContext as ScannerApplication).logs.flush(force = true) }
     }
 
     private fun start() {

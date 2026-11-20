@@ -41,7 +41,7 @@ class HomeActivity : Activity() {
     override fun onBackPressed() {
         if (!eu.komars.forgescanner.ui.SupportersIntro.dismissIfShowing(this)) @Suppress("DEPRECATION") super.onBackPressed()
     }
-    override fun onResume() { super.onResume(); home(); handler.postDelayed(refresh, 400) }
+    override fun onResume() { super.onResume(); home(); handler.postDelayed(refresh, 400); app.logs.flush() }
     override fun onPause() { handler.removeCallbacks(refresh); super.onPause() }
     override fun onDestroy() {
         handler.removeCallbacks(refresh)

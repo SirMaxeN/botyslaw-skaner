@@ -155,6 +155,7 @@ class WarPreparationOverlay(private val context:Context) {
   (panel?.background as? android.graphics.drawable.GradientDrawable)?.setStroke(dp(2),color)
  }
  private fun finishReport() {
+  runCatching {app.logs.flush(force=true)}
   active=false
   paused=false
   retryStep=null
@@ -192,6 +193,7 @@ class WarPreparationOverlay(private val context:Context) {
  private fun fail(text:String,manual:(()->Unit)?=null) {
   restoreFullPanel()
   if(fullMode||techMode){fullStore.log("failure",JSONObject().put("stage",stage).put("target",fullTarget?:JSONObject.NULL).put("reason",text));if(stage==6&&fullStore.state()!=null)retryStep={resumeFullWork()}}
+  runCatching {app.logs.flush(force=true)} // after the failure event is written
   screenFlow.reset();transitionEpoch++
   setRosterControls(0);warning?.visibility=View.GONE;active=false;generation++;GestureConnection.cancel();shield.hide();selector?.close();selector=null;releaseSelectionFrame()
   GestureConnection.beforeGesture=null;GestureConnection.afterGesture=null;GestureConnection.inputSettleMillis=null
@@ -273,12 +275,19 @@ class WarPreparationOverlay(private val context:Context) {
    addView(ScannerAppearance.title(context,if(brawl)"Symulacja bitki" else if(full)"Odczyt listy wojennej" else "Przygotowanie wojenne"))
    addView(ScannerAppearance.body(context,if(full)"Odczytam profile obu klanów. Profile z ostatnich 30 dni z niezmienioną mocą pomijam — skanuję tylko nowych i zmienionych graczy. STOP zapisuje postęp. "+(if(test)"Poza niedzielą rywal dostaje takie same bonusy jak nasz klan." else "W niedzielę odczytam też bonusy rywala; listę na tę wojnę zapisuję raz.")else "Poczekaj, aż gra się uruchomi. Rozpocznij przyciskiem poniżej."))
    addView(ScannerAppearance.overlayAction(context,"Skanuj / Rozpocznij") {start(roster,configureAll,test,full,brawl=brawl)})
-   if(full)addView(ScannerAppearance.overlayAction(context,"Nowy skan — aktualizuj tylko zmiany") {fullStore.resetRun();start(roster,configureAll,test,full,brawl=brawl)})
+   if(full)addView(ScannerAppearance.overlayAction(context,"Nowy skan — aktualizuj tylko zmiany") {fullStore.freshSince=0L;fullStore.resetRun();start(roster,configureAll,test,full,brawl=brawl)})
+   if(full)addView(ScannerAppearance.overlayAction(context,"Czysty skan — bez zapisanych profili") {cleanScan {start(roster,configureAll,test,full,brawl=brawl)}})
    if(full)addView(ScannerAppearance.button(context,"Usuń zapisane profile i skanuj od zera",quiet=true) {confirmClear {fullStore.clear();start(roster,configureAll,test,full,brawl=brawl)}})
    addView(ScannerAppearance.overlayAction(context,"Zakończ") {stop()})
   }
   wm.addView(panel,WindowManager.LayoutParams(dp(250),-2,WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,PixelFormat.TRANSLUCENT).apply {gravity=Gravity.TOP or Gravity.START;x=dp(8);y=dp(30)})
   CaptureConnection.addStateListener(listener)
+ }
+ /** Clean scan: a fresh run that reads every player again and ignores saved and shared profiles (kept, not deleted). */
+ private fun cleanScan(begin:()->Unit) {
+  fullStore.resetRun();fullStore.freshSince=System.currentTimeMillis()
+  fullStore.log("clean-scan",JSONObject().put("since",fullStore.freshSince))
+  begin()
  }
  private fun confirmClear(action:()->Unit) {
   android.app.AlertDialog.Builder(android.view.ContextThemeWrapper(context,eu.komars.forgescanner.R.style.ScannerDialogTheme)).setTitle("Usunąć zapisane profile?")
@@ -292,7 +301,8 @@ class WarPreparationOverlay(private val context:Context) {
    background=ScannerAppearance.overlayPanel(context)
    addView(ScannerAppearance.title(context,"Odczyt rankingu klanu"))
    addView(ScannerAppearance.body(context,"Każdy gracz naszego klanu walczy z każdym (bez bonusów wojennych). Profile z ostatnich 30 dni z niezmienioną mocą pomijam. Wynik trafia do /report clan-ranking."))
-   addView(ScannerAppearance.overlayAction(context,"Skanuj nasz klan — aktualizuj zmiany") {start(false,full=true,ranking=true)})
+   addView(ScannerAppearance.overlayAction(context,"Skanuj nasz klan — aktualizuj zmiany") {fullStore.freshSince=0L;start(false,full=true,ranking=true)})
+   addView(ScannerAppearance.overlayAction(context,"Czysty skan — odczytaj wszystkich od nowa") {cleanScan {start(false,full=true,ranking=true)}})
    if(saved!=null)addView(ScannerAppearance.overlayAction(context,"Przelicz z zapisanych profili (${saved.second.size} graczy)") {start(false,full=true,ranking=true,savedOnly=true)})
    addView(ScannerAppearance.overlayAction(context,"Zakończ") {stop()})
   }

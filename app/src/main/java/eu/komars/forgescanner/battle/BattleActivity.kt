@@ -52,7 +52,7 @@ class BattleActivity: Activity() {
         super.onDestroy()
     }
     override fun onStart() { super.onStart(); CaptureConnection.addStateListener(listener) }
-    override fun onResume() { super.onResume(); home() }
+    override fun onResume() { super.onResume(); home(); (application as eu.komars.forgescanner.ScannerApplication).logs.flush() }
     override fun onStop() { CaptureConnection.removeStateListener(listener); super.onStop() }
     override fun onSaveInstanceState(out:Bundle) { out.putString("pending",pending); out.putBoolean("requested",requested); super.onSaveInstanceState(out) }
     override fun onNewIntent(intent:Intent) {

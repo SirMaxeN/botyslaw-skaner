@@ -94,6 +94,8 @@ class MobileSyncClient(context: Context, private val demoMode: () -> Boolean = {
         execute(callback) { post("diagnostics",payload,token(credential)).optString("status") }
     }
     fun learningBlocking(payload:JSONObject):JSONObject = post("learning",payload,token(settings.getString("credential",null)),6*1024*1024).also { it.optString("error").takeIf { e->e.isNotEmpty() }?.let { e->error(e) } }
+    /** App text logs for remote diagnosis (POST /mobile/logs); blocking, call from a worker thread. */
+    fun logsBlocking(payload:JSONObject):JSONObject = post("logs",payload,token(settings.getString("credential",null)))
     fun profilesBlocking(payload:JSONObject):JSONObject = post("profiles",payload,token(settings.getString("credential",null)),6*1024*1024)
     fun disconnect() { synchronized(settings) { pairingEpoch.incrementAndGet(); settings.edit().clear().apply() } }
 

@@ -2,6 +2,14 @@
 
 
 
+## 1.6.9 (66) — Google Play (2026-11-20, logs on the server, damage misread fix, clean scan)
+
+- **App logs uploaded to the bot (`POST /mobile/logs`):** after every resource scan, war list, ranking or clan-tech run (finished or failed) and on returning to the home or battle screen (at most every 30 s), the app sends what is new in its text logs: `Android/data/…/files/logs` (resource scan, war/ranking events, quick skills, crop readings), `files/profiles` (read profiles) and small text diagnostics in the cache. Growing `*.jsonl` logs send only new complete lines; `*.json`/`*.txt` snapshots are sent again when they change. Never images. Only when paired, never in DEMO. No USB cable needed to diagnose a scan.
+- **Clan ranking 2026-11-20 fix (found in the server data):** 18 of our profiles read on 2026-11-18 from the war-day view had the player's power as total damage (e.g. oliwiusz 927m instead of 23.4m, GumowyPrzetyk 174b instead of 43.5m): OCR placed the power between "Łączne" and "obrażenia". Being reused for 30 days with unchanged power, they put those players at the top of the ranking. The header parser now takes the value written before "Łączne"; a profile whose damage or health is half of the power or more is kept only as a draft to check, saved profiles like that are rescanned, and shared copies like that are ignored (the bot also refuses and deletes them).
+- **Enemy profiles too:** 67 enemy profiles read on 2026-11-17/18 had the same error, so this week's war list simulation was also affected. The parser now also handles the OCR noise seen there before the power ("N 824m", "&337m", "-2b") and the "Łaączne" typo. Run over all 307 profile headers stored on the server: 0 implausible results (3 headers were empty). Every profile reader (1v1, war list, brawl, clan ranking, recording) uses this one parser, so the fix covers them all.
+- **Clean scan:** the war list and clan ranking panels have a new button, "Czysty skan", that reads every profile again and ignores saved and shared profiles from before the scan started. They stay stored (nothing is deleted), and the normal "update only changes" scan works as before.
+- The bot stores them as files per player (`data/diagnostics/devices/`) and mirrors the kept clan-ranking scans and shared profiles (`data/diagnostics/server/`); `npm run diagnostics:pull` downloads everything.
+
 ## 1.6.8 (65) — Google Play (2026-11-16, full credits once)
 
 - **Full credits once:** the thank-you intro runs 3x longer (scroll, pauses) on the first start, after an app update and when the people on the list change (added, removed or renamed; order does not matter). Afterwards it is quick again. Skipping it with a tap or Back also marks it as seen. A new list downloaded in the background counts from the next start.

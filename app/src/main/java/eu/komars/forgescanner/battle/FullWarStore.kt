@@ -12,6 +12,14 @@ internal class FullWarStore(context:Context,namespace:String="full_war") {
  private val logFile=java.io.File(context.cacheDir,"${namespace}-events.jsonl")
  private val fairyProgressions=FairyProgressionCatalog(context)
  private val prefs=context.getSharedPreferences("${namespace}_profiles_v1",0)
+ private val freshPrefs=context.getSharedPreferences("${namespace}_fresh",0)
+ /**
+  * Clean scan: profiles saved before this moment (on the phone or as the server backup) are not used, without
+  * deleting them; profiles read during the clean scan are reused as usual (STOP and resume). 0 = normal reuse.
+  */
+ var freshSince:Long
+  get()=freshPrefs.getLong("since",0L)
+  set(value) {freshPrefs.edit().putLong("since",value).commit()}
  init {
   // Profiles saved before the readable copy existed are exported once, in the background.
   Thread {runCatching {
@@ -33,6 +41,11 @@ internal class FullWarStore(context:Context,namespace:String="full_war") {
   const val REUSE_MILLIS=30*24*60*60*1000L
   /** Roster powers are rounded to three significant digits (e.g. 424m), so allow that rounding only. */
   fun samePower(saved:Double,current:Double)=saved.isFinite()&&current.isFinite()&&current>0&&kotlin.math.abs(saved-current)<=maxOf(saved,current)*0.006
+  /** A saved profile whose damage or health is half of the power or more was misread (power taken as a stat). */
+  fun plausible(record:JSONObject):Boolean {
+   val profile=record.optJSONObject("profile")?:return true
+   return BattleHeaderText.plausible(profile.optDouble("damage",0.0),profile.optDouble("health",0.0),record.optDouble("power",0.0))
+  }
   fun hash(s:String)=MessageDigest.getInstance("SHA-256").digest(s.toByteArray()).joinToString(""){"%02x".format(it)}
  }
  private fun key(enemy:Boolean,clan:String,name:String)=hash("${state()?.optString("date")?:LocalDate.now(ZoneId.of("Europe/Warsaw")).toString()}|$enemy|${WarResumePolicy.clanKey(clan)}|${BattleText.normalize(name)}")
@@ -43,7 +56,8 @@ internal class FullWarStore(context:Context,namespace:String="full_war") {
   */
  @Synchronized fun entry(enemy:Boolean,clan:String,member:WarMember):JSONObject? {
   val now=System.currentTimeMillis()
-  fun fits(record:JSONObject)=record.optString("model")==MODEL&&now-record.optLong("savedAt") in 0..REUSE_MILLIS&&samePower(record.optDouble("power"),member.power)
+  val since=freshSince
+  fun fits(record:JSONObject)=record.optString("model")==MODEL&&record.optLong("savedAt")>=since&&now-record.optLong("savedAt") in 0..REUSE_MILLIS&&samePower(record.optDouble("power"),member.power)&&plausible(record)
   val direct=runCatching {JSONObject(prefs.getString(key(enemy,clan,member.name),null)!!)}.getOrNull()?.takeIf(::fits)
   if(direct!=null)return checkFairyConfidence(direct)
   return prefs.all.values.asSequence().mapNotNull {runCatching {JSONObject(it.toString())}.getOrNull()}
@@ -52,9 +66,9 @@ internal class FullWarStore(context:Context,namespace:String="full_war") {
  }
  /** Complete profiles of one clan kept for reuse, newest per nickname. */
  @Synchronized fun completeProfiles(enemy:Boolean,clan:String):List<JSONObject> {
-  val now=System.currentTimeMillis()
+  val now=System.currentTimeMillis();val since=freshSince
   return prefs.all.values.asSequence().mapNotNull {runCatching {JSONObject(it.toString())}.getOrNull()}
-   .filter {it.optString("model")==MODEL&&it.optBoolean("complete")&&now-it.optLong("savedAt") in 0..REUSE_MILLIS&&(!it.has("enemy")||it.optBoolean("enemy")==enemy)&&WarResumePolicy.sameClan(it.optString("clan"),clan)}
+   .filter {it.optString("model")==MODEL&&it.optBoolean("complete")&&plausible(it)&&it.optLong("savedAt")>=since&&now-it.optLong("savedAt") in 0..REUSE_MILLIS&&(!it.has("enemy")||it.optBoolean("enemy")==enemy)&&WarResumePolicy.sameClan(it.optString("clan"),clan)}
    .groupBy {BattleText.normalize(it.optString("name"))}.values.map {group->group.maxBy {it.optLong("savedAt")}}.toList()
  }
  private fun checkFairyConfidence(record:JSONObject):JSONObject {
@@ -68,10 +82,13 @@ internal class FullWarStore(context:Context,namespace:String="full_war") {
   return copy.put("draft",draft).put("complete",false).put("error","Poziom wróżki wymaga sprawdzenia z jej bonusem i przyrostem.").apply {remove("profile")}
  }
  @Synchronized fun save(enemy:Boolean,clan:String,member:WarMember,profile:JSONObject?,draft:JSONObject?,error:String?) {
-  val record=JSONObject().put("model",MODEL).put("enemy",enemy).put("clan",clan).put("name",member.name).put("power",member.power).put("savedAt",System.currentTimeMillis()).put("complete",profile!=null)
-  if(profile!=null)record.put("profile",profile)
-  if(draft!=null)record.put("draft",draft)
-  if(error!=null)record.put("error",error)
+  // Damage/health at the size of the power: keep it as a draft to check, never as a complete profile.
+  val misread=profile!=null&&!BattleHeaderText.plausible(profile.optDouble("damage",0.0),profile.optDouble("health",0.0),member.power)
+  val record=JSONObject().put("model",MODEL).put("enemy",enemy).put("clan",clan).put("name",member.name).put("power",member.power).put("savedAt",System.currentTimeMillis()).put("complete",profile!=null&&!misread)
+  if(profile!=null&&!misread)record.put("profile",profile)
+  if(draft!=null||misread)record.put("draft",draft?:profile)
+  if(error!=null||misread)record.put("error",error?:"Obrażenia lub zdrowie odczytane jako moc — sprawdź profil.")
+  if(misread)log("misread-totals",JSONObject().put("name",member.name).put("power",member.power).put("damage",profile!!.optDouble("damage")).put("health",profile.optDouble("health")))
   check(prefs.edit().putString(key(enemy,clan,member.name),record.toString()).commit()) {"Nie zapisano postępu skanu."}
   mirror(record)
   if(profile!=null)runCatching {queueShare(record)}
@@ -92,7 +109,8 @@ internal class FullWarStore(context:Context,namespace:String="full_war") {
  }
  /** A complete profile from the bot server backup; never replaces one read on this phone. */
  @Synchronized fun importShared(enemy:Boolean,clan:String,member:WarMember,profile:JSONObject,savedAt:Long) {
-  if(entry(enemy,clan,member)?.optBoolean("complete")==true)return
+  if(freshSince>0||entry(enemy,clan,member)?.optBoolean("complete")==true)return
+  if(!BattleHeaderText.plausible(profile.optDouble("damage",0.0),profile.optDouble("health",0.0),member.power))return
   val record=JSONObject().put("model",MODEL).put("enemy",enemy).put("clan",clan).put("name",member.name).put("power",member.power)
    .put("savedAt",savedAt).put("complete",true).put("profile",profile).put("shared",true)
   prefs.edit().putString(key(enemy,clan,member.name),record.toString()).commit()
